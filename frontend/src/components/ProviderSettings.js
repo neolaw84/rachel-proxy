@@ -13,9 +13,10 @@ export function renderProviderSettings(container, { onProviderUpdated }) {
   container.innerHTML = `
     <div class="panel" id="panel-providers">
       <div class="panel-header">
-        <div class="panel-title">⚡ Active LLM Provider & Credentials</div>
+        <div class="panel-title">2️⃣ Step 2: Select AI Provider & Credentials</div>
         <span id="provider-loading" class="spinner hidden"></span>
       </div>
+
       <div class="panel-body" style="display:flex;flex-direction:column;gap:14px;">
         <div>
           <label>Select Active Provider</label>

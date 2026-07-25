@@ -115,10 +115,21 @@ class BaseSessionStorage(abc.ABC):
 class FileSessionStorage(BaseSessionStorage):
     """JSON file-backed session storage engine."""
 
-    def __init__(self, session_id: str, max_size: int = 8, storage_dir: Any = None) -> None:
+    def __init__(
+        self,
+        session_id: str,
+        max_size: int = 8,
+        tenant_id: str = "local",
+        storage_dir: Any = None,
+    ) -> None:
         super().__init__(session_id, max_size)
+        self.tenant_id = tenant_id
         from rachel.config import STATE_STORAGE_DIR
-        self.storage_dir = Path(storage_dir) if storage_dir is not None else Path(STATE_STORAGE_DIR)
+        base_dir = Path(storage_dir) if storage_dir is not None else Path(STATE_STORAGE_DIR)
+        if tenant_id == "local":
+            self.storage_dir = base_dir
+        else:
+            self.storage_dir = base_dir / tenant_id
         self._path = self.storage_dir / f"{session_id}.json"
         self._data: dict[str, dict[str, Any]] = self._load()
 
@@ -190,9 +201,10 @@ class FileSessionStorage(BaseSessionStorage):
         return self._data
 
     @classmethod
-    def list_sessions(cls, storage_dir: Any = None) -> list[str]:
+    def list_sessions(cls, storage_dir: Any = None, tenant_id: str = "local") -> list[str]:
         from rachel.config import STATE_STORAGE_DIR
-        d = Path(storage_dir) if storage_dir is not None else Path(STATE_STORAGE_DIR)
+        base_dir = Path(storage_dir) if storage_dir is not None else Path(STATE_STORAGE_DIR)
+        d = base_dir if tenant_id == "local" else base_dir / tenant_id
         if not d.exists():
             return []
         return [p.stem for p in sorted(d.glob("*.json"))]
@@ -361,7 +373,7 @@ def get_session_storage(
     from rachel.config import STORAGE_ENGINE
     if STORAGE_ENGINE.lower() in ("sqlite", "postgres", "sql", "relational"):
         return RelationalSessionStorage(session_id, max_size, tenant_id=tenant_id)
-    return FileSessionStorage(session_id, max_size, storage_dir)
+    return FileSessionStorage(session_id, max_size, tenant_id=tenant_id, storage_dir=storage_dir)
 
 
 def list_all_sessions(storage_dir: Any = None, tenant_id: str = "local") -> list[str]:
@@ -369,7 +381,7 @@ def list_all_sessions(storage_dir: Any = None, tenant_id: str = "local") -> list
     from rachel.config import STORAGE_ENGINE
     if STORAGE_ENGINE.lower() in ("sqlite", "postgres", "sql", "relational"):
         return RelationalSessionStorage.list_sessions(storage_dir=storage_dir, tenant_id=tenant_id)
-    return FileSessionStorage.list_sessions(storage_dir)
+    return FileSessionStorage.list_sessions(storage_dir, tenant_id=tenant_id)
 
 
 class SessionStateStore(BaseSessionStorage):

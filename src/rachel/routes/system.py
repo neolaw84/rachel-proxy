@@ -187,7 +187,7 @@ async def set_provider_credentials(payload: dict[str, Any], request: Request) ->
 async def create_proxy_key(payload: dict[str, Any], request: Request) -> dict[str, Any]:
     """Generate a new client proxy key (sk-local-... or sk-tenant-...)."""
     from datetime import datetime, timezone, timedelta
-    from rachel.core.db import TenantApiKey, get_engine, get_sessionmaker, hash_key
+    from rachel.core.api_key_storage import get_api_key_storage
 
     name = str(payload.get("name", "Default Proxy Key")).strip()
     expires_in_days = payload.get("expires_in_days")
@@ -195,7 +195,6 @@ async def create_proxy_key(payload: dict[str, Any], request: Request) -> dict[st
 
     prefix = "sk-local-" if tenant_id == "local" else "sk-tenant-"
     raw_key = f"{prefix}{secrets.token_hex(20)}"
-    kh = hash_key(raw_key)
 
     expires_at = None
     if expires_in_days is not None:
@@ -204,24 +203,16 @@ async def create_proxy_key(payload: dict[str, Any], request: Request) -> dict[st
         except (ValueError, TypeError):
             pass
 
-    key_id = f"key_{secrets.token_hex(8)}"
-    eng = get_engine()
-    sm = get_sessionmaker(eng)
-    with sm() as session:
-        record = TenantApiKey(
-            id=key_id,
-            tenant_id=tenant_id,
-            key_hash=kh,
-            prefix=prefix,
-            name=name,
-            expires_at=expires_at,
-            is_active=True,
-        )
-        session.add(record)
-        session.commit()
+    storage = get_api_key_storage(tenant_id=tenant_id)
+    record = storage.create_key(
+        name=name,
+        prefix=prefix,
+        raw_key=raw_key,
+        expires_at=expires_at,
+    )
 
     return {
-        "id": key_id,
+        "id": record["id"],
         "tenant_id": tenant_id,
         "name": name,
         "prefix": prefix,
@@ -233,49 +224,24 @@ async def create_proxy_key(payload: dict[str, Any], request: Request) -> dict[st
 @router.get("/v1/proxy-keys", dependencies=[Depends(get_admin_user)])
 async def list_proxy_keys(request: Request) -> dict[str, Any]:
     """List proxy keys for the active tenant."""
-    from rachel.core.db import TenantApiKey, get_engine, get_sessionmaker
+    from rachel.core.api_key_storage import get_api_key_storage
     tenant_id = getattr(request.state, "tenant_id", "local")
 
-    eng = get_engine()
-    sm = get_sessionmaker(eng)
-    with sm() as session:
-        records = (
-            session.query(TenantApiKey)
-            .filter_by(tenant_id=tenant_id, is_active=True)
-            .all()
-        )
-        keys_list = [
-            {
-                "id": r.id,
-                "name": r.name,
-                "prefix": r.prefix,
-                "created_at": r.created_at.isoformat() if r.created_at else None,
-                "expires_at": r.expires_at.isoformat() if r.expires_at else None,
-                "is_active": r.is_active,
-            }
-            for r in records
-        ]
-        return {"keys": keys_list, "count": len(keys_list)}
+    storage = get_api_key_storage(tenant_id=tenant_id)
+    keys_list = storage.list_keys()
+    return {"keys": keys_list, "count": len(keys_list)}
 
 
 @router.delete("/v1/proxy-keys/{key_id}", dependencies=[Depends(get_admin_user)])
 async def revoke_proxy_key(key_id: str, request: Request) -> dict[str, str]:
     """Revoke (deactivate) a client proxy key."""
-    from rachel.core.db import TenantApiKey, get_engine, get_sessionmaker
+    from rachel.core.api_key_storage import get_api_key_storage
     tenant_id = getattr(request.state, "tenant_id", "local")
 
-    eng = get_engine()
-    sm = get_sessionmaker(eng)
-    with sm() as session:
-        record = (
-            session.query(TenantApiKey)
-            .filter_by(id=key_id, tenant_id=tenant_id)
-            .first()
-        )
-        if not record:
-            raise HTTPException(status_code=444 if False else 404, detail=f"Proxy key '{key_id}' not found.")
-        record.is_active = False
-        session.commit()
+    storage = get_api_key_storage(tenant_id=tenant_id)
+    success = storage.revoke_key(key_id)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Proxy key '{key_id}' not found.")
     return {"status": "ok", "message": f"Proxy key '{key_id}' revoked."}
 
 

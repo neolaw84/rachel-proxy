@@ -33,15 +33,35 @@
   <div id="app">
     <header id="header-container"></header>
 
-    <main>
-      <aside id="sidebar-container"></aside>
+    <main id="main-container">
+      <!-- Tab 1: Setup & Provider -->
+      <div id="view-setup" class="tab-view active">
+        <div class="view-single-column">
+          <div id="credentials-helper-container"></div>
+          <div id="provider-settings-container"></div>
+        </div>
+      </div>
 
-      <div id="content">
-        <div id="provider-settings-container"></div>
-        <div id="proxy-keys-container"></div>
-        <div id="credentials-helper-container"></div>
-        <div id="proxy-status-container"></div>
-        <div id="session-inspector-container"></div>
+      <!-- Tab 2: Session Inspector -->
+      <div id="view-sessions" class="tab-view">
+        <div class="view-sessions-layout">
+          <aside id="sidebar-container"></aside>
+          <div id="session-inspector-container"></div>
+        </div>
+      </div>
+
+      <!-- Tab 3: Proxy Keys -->
+      <div id="view-keys" class="tab-view">
+        <div class="view-single-column">
+          <div id="proxy-keys-container"></div>
+        </div>
+      </div>
+
+      <!-- Tab 4: System Status -->
+      <div id="view-status" class="tab-view">
+        <div class="view-single-column">
+          <div id="proxy-status-container"></div>
+        </div>
       </div>
     </main>
   </div>
@@ -50,3 +70,4 @@
 </body>
 
 </html>
+

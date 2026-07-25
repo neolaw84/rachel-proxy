@@ -61,38 +61,35 @@ async def require_proxy_key(
 
     raw_token = credentials.credentials.strip()
 
-    # 1. Check against database hashed proxy keys
+    # 1. Check against active proxy key storage engine
     try:
-        from rachel.core.db import TenantApiKey, get_engine, get_sessionmaker, hash_key, init_db
-        eng = get_engine()
-        init_db(engine=eng)
-        sm = get_sessionmaker(eng)
+        from rachel.core.api_key_storage import get_api_key_storage, hash_key
+        storage = get_api_key_storage()
         kh = hash_key(raw_token)
-        with sm() as db_session:
-            key_record = (
-                db_session.query(TenantApiKey)
-                .filter_by(key_hash=kh, is_active=True)
-                .first()
-            )
-            if key_record:
-                if key_record.expires_at is not None:
-                    now = datetime.datetime.now(datetime.timezone.utc)
-                    expires = key_record.expires_at
-                    if expires.tzinfo is None:
-                        expires = expires.replace(tzinfo=datetime.timezone.utc)
-                    if now > expires:
-                        raise HTTPException(
-                            status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail="Proxy API key has expired.",
-                            headers={"WWW-Authenticate": "Bearer"},
-                        )
-                tenant_id = key_record.tenant_id
-                request.state.tenant_id = tenant_id
-                return tenant_id
+        key_record = storage.get_key_by_hash(kh)
+        if key_record:
+            expires_at_val = key_record.get("expires_at")
+            if expires_at_val:
+                now = datetime.datetime.now(datetime.timezone.utc)
+                if isinstance(expires_at_val, str):
+                    expires = datetime.datetime.fromisoformat(expires_at_val)
+                else:
+                    expires = expires_at_val
+                if expires.tzinfo is None:
+                    expires = expires.replace(tzinfo=datetime.timezone.utc)
+                if now > expires:
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Proxy API key has expired.",
+                        headers={"WWW-Authenticate": "Bearer"},
+                    )
+            tenant_id = key_record.get("tenant_id", "local")
+            request.state.tenant_id = tenant_id
+            return tenant_id
     except HTTPException:
         raise
     except Exception as exc:
-        logger.warning("Error during database proxy key lookup: %s", exc)
+        logger.warning("Error during proxy key lookup: %s", exc)
 
     # 2. Fallback check against local PROXY_API_KEY
     if secrets.compare_digest(raw_token, PROXY_API_KEY):

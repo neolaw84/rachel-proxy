@@ -20,12 +20,39 @@ document.addEventListener('DOMContentLoaded', () => {
   const statusContainer = document.getElementById('proxy-status-container');
   const sessionInspectorContainer = document.getElementById('session-inspector-container');
 
+  const views = {
+    setup: document.getElementById('view-setup'),
+    sessions: document.getElementById('view-sessions'),
+    keys: document.getElementById('view-keys'),
+    status: document.getElementById('view-status'),
+  };
+
   let sessionSidebar = null;
   let providerSettings = null;
   let proxyKeysPanel = null;
   let credentialsHelper = null;
   let proxyStatus = null;
   let sessionInspector = null;
+
+  function switchTab(tabName) {
+    Object.keys(views).forEach((name) => {
+      if (views[name]) {
+        if (name === tabName) {
+          views[name].classList.add('active');
+        } else {
+          views[name].classList.remove('active');
+        }
+      }
+    });
+
+    if (tabName === 'sessions' && sessionSidebar) {
+      sessionSidebar.loadSessions();
+    } else if (tabName === 'keys' && proxyKeysPanel) {
+      proxyKeysPanel.loadKeys();
+    } else if (tabName === 'status' && proxyStatus) {
+      proxyStatus.loadStatus();
+    }
+  }
 
   function onConnected() {
     if (proxyStatus) proxyStatus.loadStatus();
@@ -52,6 +79,18 @@ document.addEventListener('DOMContentLoaded', () => {
     },
     onLogout: () => {
       authController.showAuth();
+    },
+    onSelectTab: (tabName) => {
+      switchTab(tabName);
+    },
+    onCopyConfig: () => {
+      switchTab('setup');
+      const tabs = document.querySelectorAll('.nav-tab');
+      tabs.forEach((t) => t.classList.toggle('active', t.getAttribute('data-tab') === 'setup'));
+      const card = document.getElementById('panel-credentials');
+      if (card) {
+        card.scrollIntoView({ behavior: 'smooth' });
+      }
     },
   });
 
@@ -85,3 +124,4 @@ document.addEventListener('DOMContentLoaded', () => {
     },
   });
 });
+

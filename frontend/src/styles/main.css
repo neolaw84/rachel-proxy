@@ -287,17 +287,84 @@ header {
   background: var(--muted);
 }
 
-/* Main grid */
-main {
-  display: grid;
-  grid-template-columns: 260px 1fr;
+/* Navigation Tabs */
+.nav-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 14px;
+}
+
+.nav-tab {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  padding: 6px 14px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.nav-tab:hover {
+  color: var(--text);
+  background: rgba(108, 138, 255, 0.08);
+}
+
+.nav-tab.active {
+  background: rgba(108, 138, 255, 0.18);
+  border-color: var(--border-hi);
+  color: var(--text-hi);
+  box-shadow: 0 0 10px rgba(108, 138, 255, 0.2);
+}
+
+/* Main grid / Views */
+main#main-container {
+  display: flex;
+  flex-direction: column;
   flex: 1;
   overflow: hidden;
+}
+
+.tab-view {
+  display: none;
+  flex: 1;
+  width: 100%;
+  overflow: hidden;
+}
+
+.tab-view.active {
+  display: flex;
+  flex-direction: column;
+}
+
+.view-sessions-layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  flex: 1;
+  height: calc(100vh - 60px);
+  overflow: hidden;
+}
+
+.view-single-column {
+  max-width: 900px;
+  margin: 24px auto;
+  width: 100%;
+  padding: 0 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  overflow-y: auto;
 }
 
 #sidebar {
   background: rgba(14, 18, 34, 0.7);
   border-right: 1px solid var(--border);
+
   display: flex;
   flex-direction: column;
   overflow: hidden;
