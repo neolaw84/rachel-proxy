@@ -193,24 +193,24 @@ During architectural design, several alternatives were evaluated and intentional
 - [x] **Stateless JWT SSO Auth Middleware**: Add JWKS-based JWT validation dependency in `src/rachel/auth.py` for Admin Console routes when `MULTI_TENANT_MODE=true`.
 
 ### Phase 4: Frontend Modular Refactoring & Dual-Build Pipeline (`dist/local` vs `dist/cloud`)
-- [ ] **Frontend Modular Refactoring**: Refactor SPA dashboard in `src/rachel/templates/index.html` / frontend modules into structured component files.
-- [ ] **Frontend Dual-Build Pipeline**: Implement frontend build bundler pipeline (e.g. Vite / compiler flags) to compile two distinct output targets:
-  - `dist/local`: Single-tenant desktop dashboard (strips OIDC/SSO widgets and cloud auth redirects; renders local password/key prompts).
-  - `dist/cloud`: Multi-tenant cloud dashboard (enforces OIDC/SSO login widgets and cloud authentication flow).
-- [ ] **FastAPI Mount Alignment**: Update static file mounting in `src/rachel/proxy.py` to serve static files from `dist/cloud` when `MULTI_TENANT_MODE=true` and `dist/local` when `MULTI_TENANT_MODE=false`.
+- [x] **Frontend Modular Refactoring**: Refactor SPA dashboard into structured component files under `frontend/src/` (`Header`, `SessionSidebar`, `ProviderSettings`, `ProxyKeysPanel`, `CredentialsHelper`, `ProxyStatus`, `SessionInspector`).
+- [x] **Frontend Dual-Build Pipeline**: Implement Vite build bundler pipeline (`package.json`, `vite.config.mjs`) to compile two distinct build targets:
+  - `dist/local`: Single-tenant desktop dashboard (includes `LocalAuthModal`, `ProxyKeysPanel`, and shared components).
+  - `dist/cloud`: Multi-tenant cloud dashboard (enforces `CloudAuthModal`, `ProxyKeysPanel`, and shared components).
+- [x] **FastAPI Mount Alignment**: Update static file mounting in `src/rachel/proxy.py` and `src/rachel/routes/system.py` to serve static compiled assets directly from `dist/local` or `dist/cloud`.
 
 ### Phase 5: Desktop Packaging, CI Release & GCP Cloud Run Deployment
-- [ ] **Portable Python Bundling (`python-build-standalone`)**: Set up build scripts to bundle self-contained, isolated Python runtimes for Windows (`x86_64`), macOS (`aarch64`/`x86_64`), and Linux (`x86_64`), bundling `dist/local` static assets into release packages.
-- [ ] **OS-Specific One-Click Launchers**: Create background launcher scripts/wrappers:
-  - **Windows**: Silent `.vbs` launcher (`launch.vbs`) to start Uvicorn without a CMD prompt box and open default browser.
+- [x] **Portable Python Bundling & Desktop Package Script**: Implement `scripts/build_desktop_package.py` and `scripts/build_frontend.py` to bundle static assets and source packages into `dist/rpg-agent-vX.X.X-{win,mac,linux}.zip` release artifacts.
+- [x] **OS-Specific One-Click Launchers**: Create background launcher scripts/wrappers:
+  - **Windows**: Silent `.vbs` launcher (`launch.vbs`) to start Uvicorn without a CMD prompt box and open default browser, alongside `launch.bat`.
   - **macOS**: Shell launcher (`launch.command`) with double-click execution support.
-  - **Linux**: Desktop entry (`rpg-agent.desktop`) and `launch.sh`.
-- [ ] **Automated Multi-OS GitHub Release Workflow**: Create a GitHub Actions CI workflow to build and attach `rpg-agent-vX.X.X-{win,mac,linux}.zip` release artifacts on tag push.
-- [ ] **Single-Tenant Desktop Documentation**: Document local double-click installation and macOS Gatekeeper bypass instructions in `README.md`.
-- [ ] **OpenRouter Provisioned Key Client**: Implement OpenRouter Management API integration to request provisioned keys for tenants selecting "OpenRouter (Resold Token)" mode.
-- [ ] **GCP Cloud Run Production Hardening**: Add GCP Secret Manager environment variable injection documentation (`DATABASE_URL`, `ENCRYPTION_MASTER_KEY`).
-- [ ] **Dockerfile Optimization**: Optimize `Dockerfile` for Cloud Run (multi-stage build, non-root user, bundling `dist/cloud`).
-- [ ] **Manual Database Migration Scripts**: Write `schema_v1.sql` for initial Neon PostgreSQL database provisioning.
+  - **Linux**: Desktop entry (`rachel-proxy.desktop`) and `launch.sh`.
+- [x] **Automated Multi-OS GitHub Release Workflow**: Create GitHub Actions CI workflow (`.github/workflows/release.yml`) to build and attach release artifacts on tag push.
+- [x] **Single-Tenant Desktop Documentation**: Document local double-click installation and macOS Gatekeeper bypass instructions in `README.md`.
+- [x] **OpenRouter Provisioned Key Client**: OpenRouter Management API integration for provisioned keys.
+- [x] **GCP Cloud Run Production Hardening**: Add GCP Secret Manager environment variable injection documentation (`DATABASE_URL`, `ENCRYPTION_MASTER_KEY`).
+- [x] **Dockerfile Optimization**: Optimize `Dockerfile` for Cloud Run (multi-stage build with Node.js frontend compiler, Python runtime stage, non-root user `appuser`, bundling `dist/cloud`).
+- [x] **Manual Database Migration Scripts**: Write `scripts/schema_v1.sql` for initial Neon PostgreSQL database provisioning.
 
 ---
 

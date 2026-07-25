@@ -434,6 +434,33 @@ main {
   color: var(--text-dim);
 }
 
+/* Proxy Keys Table */
+.keys-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+}
+
+.keys-table th,
+.keys-table td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.82rem;
+}
+
+.keys-table th {
+  color: var(--muted);
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+}
+
+.key-prefix {
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--accent);
+}
+
 /* Status grid */
 .status-grid {
   display: grid;

@@ -1,7 +1,9 @@
 """Unit tests for Multi-Provider endpoints, CORS, and PKCE OAuth flow."""
 
+import asyncio
 import pytest
 from fastapi.testclient import TestClient
+
 
 from rachel.auth import PROXY_API_KEY
 from rachel.proxy import app
@@ -79,3 +81,146 @@ def test_openrouter_pkce_authorize_route():
     assert "openrouter.ai/auth" in location
     assert "code_challenge=" in location
     assert "code_challenge_method=S256" in location
+
+
+def test_format_provider_session_id_and_caching_info():
+    from rachel.core.session import format_provider_session_id, get_session_caching_info
+
+    # Standard clean session ID
+    sid = "my-session_123"
+    assert format_provider_session_id(sid) == "my-session_123"
+
+    # Dirty / special characters session ID
+    dirty_sid = "my session!@#$with spaces"
+    assert format_provider_session_id(dirty_sid) == "my_session____with_spaces"
+
+    # Overly long session ID (truncated to 256 chars)
+    long_sid = "a" * 300
+    assert len(format_provider_session_id(long_sid)) == 256
+
+    # get_session_caching_info
+    info = get_session_caching_info("user-sess-456")
+    assert info["session_id"] == "user-sess-456"
+    assert info["prompt_cache_key"] == "user-sess-456"
+    assert info["user"] == "user-user-sess-456"
+
+
+@pytest.mark.asyncio
+async def test_call_llm_streaming_session_caching_parameters():
+    from unittest.mock import patch
+    from rachel.agent.openrouter import call_llm_streaming
+
+    captured_requests = []
+    stream_queue = asyncio.Queue()
+
+    class DummyStreamResponse:
+        def __init__(self):
+            self.status_code = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def aiter_lines(self):
+            yield 'data: {"choices":[{"delta":{"content":"hello"}}]}'
+            yield 'data: [DONE]'
+
+    def mock_stream(method, url, json=None, headers=None, **kwargs):
+        captured_requests.append({"json": json, "headers": headers})
+        return DummyStreamResponse()
+
+    with patch("httpx.AsyncClient.stream", side_effect=mock_stream):
+        await call_llm_streaming(
+            api_key="test_key",
+            base_url="https://api.openrouter.ai/v1/chat/completions",
+            model="gpt-4o",
+            openai_messages=[{"role": "user", "content": "hi"}],
+            stream_queue=stream_queue,
+            session_id="test-session-xyz",
+        )
+
+    assert len(captured_requests) == 1
+    req = captured_requests[0]
+    assert req["headers"]["X-Session-Id"] == "test-session-xyz"
+    assert req["json"]["session_id"] == "test-session-xyz"
+    assert req["json"]["prompt_cache_key"] == "test-session-xyz"
+    assert req["json"]["user"] == "user-test-session-xyz"
+
+
+@pytest.mark.asyncio
+async def test_call_llm_direct_session_caching_parameters():
+    from unittest.mock import patch
+    from rachel.agent.openrouter import call_llm_direct
+
+    captured_requests = []
+
+    class DummyResponse:
+        def __init__(self):
+            self.status_code = 200
+
+        def json(self):
+            return {"choices": [{"message": {"content": "direct reply"}}]}
+
+    async def mock_post(url, json=None, headers=None, **kwargs):
+        captured_requests.append({"json": json, "headers": headers})
+        return DummyResponse()
+
+    with patch("httpx.AsyncClient.post", side_effect=mock_post):
+        res = await call_llm_direct(
+            api_key="test_key",
+            base_url="https://api.openrouter.ai/v1/chat/completions",
+            model="gpt-4o",
+            openai_messages=[{"role": "user", "content": "hi"}],
+            session_id="direct-sess-999",
+        )
+        assert res == "direct reply"
+
+    assert len(captured_requests) == 1
+    req = captured_requests[0]
+    assert req["headers"]["X-Session-Id"] == "direct-sess-999"
+    assert req["json"]["session_id"] == "direct-sess-999"
+    assert req["json"]["prompt_cache_key"] == "direct-sess-999"
+    assert req["json"]["user"] == "user-direct-sess-999"
+
+
+@pytest.mark.asyncio
+async def test_run_agent_session_info_persistence():
+    from unittest.mock import patch
+    from rachel.agent.graph import run_agent
+
+    stream_queue = asyncio.Queue()
+
+    class DummyStreamResponse:
+        def __init__(self):
+            self.status_code = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def aiter_lines(self):
+            yield 'data: {"choices":[{"delta":{"content":"agent response"}}]}'
+            yield 'data: [DONE]'
+
+    with patch("httpx.AsyncClient.stream", side_effect=lambda *a, **kw: DummyStreamResponse()):
+        res = await run_agent(
+            messages=[{"role": "user", "content": "hello"}],
+            before_state={},
+            api_key="test_key",
+            base_url="https://api.openrouter.ai/v1/chat/completions",
+            model="gpt-4o",
+            stream_queue=stream_queue,
+            session_id="persistent-session-42",
+        )
+
+    assert res["content"] == "agent response"
+    session_info = res["after_state"]["hidden_state"]["session_info"]
+    assert session_info["session_id"] == "persistent-session-42"
+    assert session_info["prompt_cache_key"] == "persistent-session-42"
+    assert session_info["user"] == "user-persistent-session-42"
+
+

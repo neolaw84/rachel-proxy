@@ -38,6 +38,58 @@ Download the release zip for your operating system from [Releases](../../release
 
 ---
 
+## Multi-Tenant Cloud Deployment (GCP Cloud Run + Neon PostgreSQL)
+
+Deploy RACHEL to GCP Cloud Run using the multi-stage `Dockerfile`:
+
+### 1. Database Provisioning
+Run `scripts/schema_v1.sql` against your **Neon PostgreSQL** database instance to initialize tables.
+
+### 2. Build & Push Docker Container
+```bash
+docker build -t gcr.io/YOUR_PROJECT_ID/rachel-proxy:latest .
+docker push gcr.io/YOUR_PROJECT_ID/rachel-proxy:latest
+```
+
+### 3. Deploy to GCP Cloud Run
+Configure the container with environment variables (using GCP Secret Manager for sensitive keys):
+
+```bash
+gcloud run deploy rachel-proxy \
+  --image gcr.io/YOUR_PROJECT_ID/rachel-proxy:latest \
+  --platform managed \
+  --region us-central1 \
+  --set-env-vars MULTI_TENANT_MODE=true \
+  --set-env-vars DATABASE_URL="postgresql://user:pass@ep-cool-db.neon.tech/neondb?sslmode=require" \
+  --set-env-vars ENCRYPTION_MASTER_KEY="your-secure-master-encryption-secret" \
+  --set-env-vars OIDC_ISSUER_URL="https://your-tenant.clerk.accounts.dev" \
+  --set-env-vars OIDC_JWKS_URL="https://your-tenant.clerk.accounts.dev/.well-known/jwks.json" \
+  --allow-unauthenticated
+```
+
+---
+
+## Developer Local Setup
+
+If you are cloning this repository for local development:
+
+1. Install Python dependencies:
+   ```bash
+   pip install -e .
+   ```
+2. **Build Frontend Assets (Required)**:
+   > [!IMPORTANT]
+   > The compiled static frontend directory (`src/rachel/static/`) is git-ignored. You MUST build the frontend before launching the backend server:
+   ```bash
+   python scripts/build_frontend.py --target local
+   ```
+3. Run the development server:
+   ```bash
+   uvicorn rachel.proxy:app --reload --host 0.0.0.0 --port 8000
+   ```
+
+---
+
 ## Initial Setup & LLM Provider Credentials
 
 Once the proxy starts, open the Admin Console in your browser at `http://localhost:8000`:
@@ -47,3 +99,5 @@ Once the proxy starts, open the Admin Console in your browser at `http://localho
 3. Select your **Active Provider** and save settings.
 
 Captured payloads are appended to [`docs/example-janitorai-payload.md`](docs/example-janitorai-payload.md).
+
+

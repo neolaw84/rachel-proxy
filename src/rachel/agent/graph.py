@@ -91,6 +91,7 @@ async def run_agent(
     sandbox_timeout: float = 2.0,
     max_iterations: int = 5,
     stream_queue: asyncio.Queue | None = None,
+    session_id: str | None = None,
 ) -> dict[str, Any]:
     """Run the LangGraph agent for one proxy turn."""
     turn_number = sum(1 for m in messages if m.get("role") == "assistant") + 1
@@ -98,6 +99,13 @@ async def run_agent(
         "rpg_state": dict(before_state),
         "current_turn": turn_number,
     }
+    if session_id:
+        state_container["session_id"] = session_id
+        from rachel.core.session import get_session_caching_info
+        caching_info = get_session_caching_info(session_id)
+        if "hidden_state" not in state_container["rpg_state"] or not isinstance(state_container["rpg_state"]["hidden_state"], dict):
+            state_container["rpg_state"]["hidden_state"] = {}
+        state_container["rpg_state"]["hidden_state"]["session_info"] = caching_info
 
     compiled = build_graph(
         api_key=api_key,
@@ -190,22 +198,28 @@ async def run_agent(
         "bundle_summary_fired": summary_fired and SUMMARY_BUNDLE_LLM,
         "bundle_cleanup_fired": cleanup_fired and CLEANUP_BUNDLE_LLM,
     }
+    if session_id:
+        config["configurable"]["session_id"] = session_id
     if stream_queue is not None:
         config["configurable"]["stream_queue"] = stream_queue
 
+
     final_state = await compiled.ainvoke(initial_state, config=config)
 
-    # Extract final AIMessage details
+    # Extract final AIMessage details and accumulate reasoning across turns
     final_content = ""
-    final_reasoning = ""
-    for msg in reversed(final_state["messages"]):
+    reasoning_parts = []
+    for msg in final_state["messages"]:
         if isinstance(msg, AIMessage):
             content = msg.content or ""
             if not isinstance(content, str):
                 content = str(content)
-            final_content = content
-            final_reasoning = msg.additional_kwargs.get("reasoning_content") or ""
-            break
+            if content:
+                final_content = content
+            rc = msg.additional_kwargs.get("reasoning_content")
+            if rc:
+                reasoning_parts.append(rc)
+    final_reasoning = "\n\n".join(reasoning_parts)
 
     return {
         "content": final_content,

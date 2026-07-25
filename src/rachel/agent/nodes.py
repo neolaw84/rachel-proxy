@@ -100,6 +100,20 @@ def _build_llm_node(
         current_rpg_state = state_container.get("rpg_state", {})
         turn_number = sum(1 for m in state["messages"] if isinstance(m, AIMessage)) + 1
 
+        session_id = config.get("configurable", {}).get("session_id") or state_container.get("session_id")
+        session_kwargs = {}
+        if session_id:
+            from rachel.core.session import get_session_caching_info
+            caching_info = get_session_caching_info(session_id)
+            session_kwargs = {
+                "session_id": caching_info["session_id"],
+                "prompt_cache_key": caching_info["prompt_cache_key"],
+                "user": caching_info["user"],
+            }
+            if "hidden_state" not in current_rpg_state or not isinstance(current_rpg_state["hidden_state"], dict):
+                current_rpg_state["hidden_state"] = {}
+            current_rpg_state["hidden_state"]["session_info"] = caching_info
+
         system_instruction = _GraphDelegate.get_system_instruction(
             rpg_state=current_rpg_state,
             sandbox_timeout=sandbox_timeout,
@@ -126,15 +140,20 @@ def _build_llm_node(
             stream_queue=stream_queue,
             include_plan=bundle_plan_fired,
             include_summary=bundle_summary_fired,
+            **session_kwargs,
         )
 
         # Convert tool calls to LangChain format
         lc_tool_calls = []
         for tc in tcs:
+            raw_args = tc.get("function", {}).get("arguments", "")
             try:
-                args = json.loads(tc["function"]["arguments"])
-            except json.JSONDecodeError:
-                args = {}
+                args = json.loads(raw_args) if raw_args else {}
+            except json.JSONDecodeError as exc:
+                args = {
+                    "_invalid_json_error": f"JSONDecodeError: {exc}",
+                    "_raw_arguments": raw_args,
+                }
             lc_tool_calls.append({
                 "name": tc["function"]["name"],
                 "args": args,
@@ -169,6 +188,17 @@ def _build_summary_node(api_key: str, state_container: dict[str, Any], base_url:
         hidden = rpg.get("hidden_state", {}) or {}
         last_summary_turn = hidden.get("last_summary_turn", 0)
 
+        session_id = config.get("configurable", {}).get("session_id") or state_container.get("session_id")
+        session_kwargs = {}
+        if session_id:
+            from rachel.core.session import get_session_caching_info
+            caching_info = get_session_caching_info(session_id)
+            session_kwargs = {
+                "session_id": caching_info["session_id"],
+                "prompt_cache_key": caching_info["prompt_cache_key"],
+                "user": caching_info["user"],
+            }
+
         summary_turns_val, turns_since_update = _calculate_turns_since_update(current_turn, last_summary_turn)
 
         range_ref = get_range_reference(state["messages"], summary_turns_val)
@@ -194,6 +224,7 @@ def _build_summary_node(api_key: str, state_container: dict[str, Any], base_url:
                 model=SUMMARY_MODEL,
                 openai_messages=history_msgs,
                 temperature=SUMMARY_TEMPERATURE,
+                **session_kwargs,
             )
             summary_delta = summary_delta.strip()
             if summary_delta.startswith('"') and summary_delta.endswith('"'):
@@ -229,6 +260,17 @@ def _build_plan_node(api_key: str, state_container: dict[str, Any], base_url: st
         hidden = rpg.get("hidden_state", {}) or {}
         last_plan_turn = hidden.get("last_plan_turn", 0)
 
+        session_id = config.get("configurable", {}).get("session_id") or state_container.get("session_id")
+        session_kwargs = {}
+        if session_id:
+            from rachel.core.session import get_session_caching_info
+            caching_info = get_session_caching_info(session_id)
+            session_kwargs = {
+                "session_id": caching_info["session_id"],
+                "prompt_cache_key": caching_info["prompt_cache_key"],
+                "user": caching_info["user"],
+            }
+
         plan_turns_val, turns_since_update = _calculate_turns_since_update(current_turn, last_plan_turn)
 
         range_ref = get_range_reference(state["messages"], plan_turns_val)
@@ -253,6 +295,7 @@ def _build_plan_node(api_key: str, state_container: dict[str, Any], base_url: st
                 model=PLAN_MODEL,
                 openai_messages=history_msgs,
                 temperature=PLAN_TEMPERATURE,
+                **session_kwargs,
             )
             clean_resp = plan_response.strip()
             if clean_resp.startswith("```"):
@@ -308,6 +351,17 @@ def _build_cleanup_node(api_key: str, state_container: dict[str, Any], sandbox_t
         rpg = state_container["rpg_state"]
         current_turn = sum(1 for m in state["messages"] if isinstance(m, AIMessage)) + 1
 
+        session_id = config.get("configurable", {}).get("session_id") or state_container.get("session_id")
+        session_kwargs = {}
+        if session_id:
+            from rachel.core.session import get_session_caching_info
+            caching_info = get_session_caching_info(session_id)
+            session_kwargs = {
+                "session_id": caching_info["session_id"],
+                "prompt_cache_key": caching_info["prompt_cache_key"],
+                "user": caching_info["user"],
+            }
+
         cleanup_prompt = get_cleanup_prompt(
             state=rpg.get("state", {}),
             hidden_state=rpg.get("hidden_state", {}),
@@ -324,6 +378,7 @@ def _build_cleanup_node(api_key: str, state_container: dict[str, Any], sandbox_t
                 model=CLEANUP_MODEL,
                 openai_messages=history_msgs,
                 temperature=CLEANUP_TEMPERATURE,
+                **session_kwargs,
             )
             code = code_response.strip()
             if code.startswith("```"):
@@ -383,7 +438,27 @@ def _build_tool_node(tools: list):
                         "tool_log",
                         f"\n[Calling tool: {call['name']} with args: {args_str}]\n"
                     ))
-                result = await tool_fn.ainvoke(call["args"])
+                try:
+                    if isinstance(call.get("args"), dict) and "_invalid_json_error" in call["args"]:
+                        err_msg = call["args"]["_invalid_json_error"]
+                        raw_args = call["args"].get("_raw_arguments", "")
+                        result = (
+                            f"--- Tool Execution Exception ---\n"
+                            f"{err_msg}\n"
+                            f"Raw arguments: '{raw_args}'\n"
+                            f"Notice: The tool parameters could not be parsed as valid JSON. "
+                            f"Please adjust your parameters to valid JSON format matching the schema and re-attempt."
+                        )
+                    else:
+                        result = await tool_fn.ainvoke(call["args"])
+                except Exception as exc:
+                    logger.warning("Tool execution error for tool '%s': %s", call["name"], exc, exc_info=True)
+                    result = (
+                        f"--- Tool Execution Exception ---\n"
+                        f"{type(exc).__name__}: {exc}\n"
+                        f"Notice: The tool call failed due to invalid arguments or an internal error. "
+                        f"Please review the error and parameter requirements, then re-attempt."
+                    )
                 if stream_queue:
                     await stream_queue.put((
                         "tool_log",

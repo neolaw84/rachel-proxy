@@ -34,7 +34,7 @@ from rachel.core.settings_storage import (
 
 router = APIRouter(tags=["system"])
 
-_DASHBOARD_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "templates", "index.html")
+_STATIC_INDEX = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static", "index.html")
 
 # In-memory store for PKCE verifiers (state -> verifier)
 _PKCE_VERIFIERS: dict[str, str] = {}
@@ -79,11 +79,11 @@ def detect_public_url() -> str:
 async def dashboard() -> HTMLResponse:
     """Serve the single-page administration dashboard."""
     try:
-        with open(_DASHBOARD_PATH, encoding="utf-8") as fh:
+        with open(_STATIC_INDEX, encoding="utf-8") as fh:
             return HTMLResponse(fh.read())
     except FileNotFoundError:
         return HTMLResponse(
-            "<h1>Dashboard not found</h1><p>index.html is missing.</p>",
+            "<h1>Dashboard not found</h1><p>Compiled index.html is missing. Run <code>python scripts/build_frontend.py</code>.</p>",
             status_code=500,
         )
 

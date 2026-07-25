@@ -1,65 +1,72 @@
-name: Release Standalone Packages & PyPI
+name: Release & Package Build
 
 on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:
 
 jobs:
-  build-release:
-    name: Build Desktop Bundles & GitHub Release
+  build-desktop-packages:
+    name: Build Desktop Release Packages
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Build Standalone Packages
-        run: |
-          python scripts/build_standalone.py --target all
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
 
-      - name: Create GitHub Release & Upload Assets
+      - name: Install Frontend Dependencies
+        run: npm ci
+
+      - name: Build Desktop Packages
+        run: python scripts/build_desktop_package.py --platform all
+
+      - name: Release Artifacts to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.zip
-          generate_release_notes: true
+          files: dist/rpg-agent-*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   publish-pypi:
-    name: Publish to PyPI
-    needs: build-release
+    name: Build & Publish PyPI Package
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
-
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Install build tools
-        run: |
-          python -m pip install --upgrade pip build
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
 
-      - name: Build sdist and wheel
+      - name: Install Frontend Dependencies
+        run: npm ci
+
+      - name: Build Frontend Static Assets
+        run: python scripts/build_frontend.py --target local
+
+      - name: Build PyPI Source & Wheel Distributions
         run: |
+          pip install build
           python -m build
 
-      - name: Publish package to PyPI
+      - name: Publish Package to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          skip-existing: true
+          user: __token__
+          password: ${{ secrets.PYPI_API_TOKEN }}
+        continue-on-error: true

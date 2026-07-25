@@ -83,6 +83,10 @@ app.add_middleware(
 from fastapi.staticfiles import StaticFiles
 
 static_dir = os.path.join(os.path.dirname(__file__), "static")
+assets_dir = os.path.join(static_dir, "assets")
+
+if os.path.exists(assets_dir):
+    app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
 if os.path.exists(static_dir):
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 

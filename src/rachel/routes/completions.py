@@ -164,6 +164,8 @@ async def _stream_generator(
         result = await agent_task
         after_state = result["after_state"]
         store.save_turn(turn_key, before_state, after_state)
+        # Yield final finish_reason="stop" signal
+        yield _make_sse_chunk(turn_key, model, {}, finish_reason="stop")
     except Exception as exc:
         logger.error("Agent task failed: %s", exc)
         yield _make_sse_chunk(
@@ -239,6 +241,7 @@ async def _handle_streaming_completion(
             sandbox_timeout=SANDBOX_TIMEOUT,
             max_iterations=MAX_ITERATIONS,
             stream_queue=stream_queue,
+            session_id=resolved_sid,
         )
     )
 
@@ -278,6 +281,7 @@ async def _handle_non_streaming_completion(
             model=model,
             sandbox_timeout=SANDBOX_TIMEOUT,
             max_iterations=MAX_ITERATIONS,
+            session_id=resolved_sid,
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Agent execution failed: {exc}") from exc

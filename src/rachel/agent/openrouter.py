@@ -64,6 +64,9 @@ async def call_llm_streaming(
     stream_queue: asyncio.Queue | None,
     include_plan: bool = False,
     include_summary: bool = False,
+    session_id: str | None = None,
+    prompt_cache_key: str | None = None,
+    user: str | None = None,
 ) -> tuple[str, str, list[dict]]:
     """Call LLM provider, streaming reasoning/content chunks to stream_queue if present."""
     headers = {
@@ -72,7 +75,7 @@ async def call_llm_streaming(
         "HTTP-Referer": "http://localhost",
         "X-Title": "RPG Agent Proxy",
     }
-    payload = {
+    payload: dict[str, Any] = {
         "model": model,
         "messages": openai_messages,
         "tools": get_tools_schema(
@@ -82,6 +85,18 @@ async def call_llm_streaming(
         ),
         "stream": stream_queue is not None,
     }
+    if session_id:
+        headers["X-Session-Id"] = session_id
+        payload["session_id"] = session_id
+        if not prompt_cache_key:
+            prompt_cache_key = session_id
+        if not user:
+            user = f"user-{session_id}"
+    if prompt_cache_key:
+        payload["prompt_cache_key"] = prompt_cache_key
+    if user:
+        payload["user"] = user
+
     # Request reasoning explicitly if configured
     if INCLUDE_REASONING:
         deep_merge(payload, REASONING_PAYLOAD)
@@ -89,6 +104,7 @@ async def call_llm_streaming(
     if stream_queue is not None:
         final_content = []
         final_reasoning = []
+        turn_content_chunks = []
         tool_calls_map = {}
 
         async with httpx.AsyncClient(timeout=120.0) as client:
@@ -125,11 +141,11 @@ async def call_llm_streaming(
                         final_reasoning.append(rc)
                         await stream_queue.put(("reasoning", rc))
 
-                    # 2. Parse content
+                    # 2. Parse content into turn buffer
                     c = delta.get("content")
                     if c:
                         final_content.append(c)
-                        await stream_queue.put(("content", c))
+                        turn_content_chunks.append(c)
 
                     # 3. Parse tool_calls
                     tcs = delta.get("tool_calls", [])
@@ -148,6 +164,16 @@ async def call_llm_streaming(
 
                         arg_frag = tc.get("function", {}).get("arguments", "")
                         tool_calls_map[idx]["arguments"] += arg_frag
+
+        # Flush buffered content according to whether tool calls were made
+        if turn_content_chunks:
+            turn_text = "".join(turn_content_chunks)
+            if tool_calls_map:
+                # Turn had tool calls: intermediate content belongs in reasoning/logs to keep thinking box open
+                await stream_queue.put(("reasoning", turn_text))
+            else:
+                # Turn had no tool calls: final response content
+                await stream_queue.put(("content", turn_text))
 
         tc_list = []
         for idx in sorted(tool_calls_map.keys()):
@@ -185,6 +211,9 @@ async def call_llm_direct(
     model: str,
     openai_messages: list[dict],
     temperature: float = 0.2,
+    session_id: str | None = None,
+    prompt_cache_key: str | None = None,
+    user: str | None = None,
 ) -> str:
     """Make a simple, direct, non-streaming completion call to provider without tool injection."""
     headers = {
@@ -193,11 +222,23 @@ async def call_llm_direct(
         "HTTP-Referer": "http://localhost",
         "X-Title": "RPG Agent Proxy",
     }
-    payload = {
+    payload: dict[str, Any] = {
         "model": model,
         "messages": openai_messages,
         "temperature": temperature,
     }
+    if session_id:
+        headers["X-Session-Id"] = session_id
+        payload["session_id"] = session_id
+        if not prompt_cache_key:
+            prompt_cache_key = session_id
+        if not user:
+            user = f"user-{session_id}"
+    if prompt_cache_key:
+        payload["prompt_cache_key"] = prompt_cache_key
+    if user:
+        payload["user"] = user
+
     async with httpx.AsyncClient(timeout=120.0) as client:
         response = await client.post(base_url, json=payload, headers=headers)
         if response.status_code >= 400:
@@ -208,3 +249,4 @@ async def call_llm_direct(
 # Backward compatibility aliases
 call_openrouter_streaming = call_llm_streaming
 call_openrouter_direct = call_llm_direct
+

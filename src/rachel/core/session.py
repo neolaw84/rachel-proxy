@@ -254,3 +254,39 @@ def resolve_session_id(
 
     # Fallback — should be rare in practice
     return "unknown-session", "fallback"
+
+
+# ---------------------------------------------------------------------------
+# Provider Caching & Session Info Helpers
+# ---------------------------------------------------------------------------
+
+
+def format_provider_session_id(session_id: str) -> str:
+    """Format and sanitize a RACHEL session_id for LLM provider APIs.
+
+    Ensures the session identifier is a valid alphanumeric/hyphen/underscore string
+    with a maximum length of 256 characters (as required by OpenRouter/OpenAI standards).
+    """
+    if not session_id:
+        return "rachel-session-default"
+    sanitized = re.sub(r"[^a-zA-Z0-9_\-]", "_", session_id.strip())
+    if len(sanitized) > 256:
+        sanitized = sanitized[:256]
+    return sanitized or "rachel-session-default"
+
+
+def get_session_caching_info(session_id: str) -> dict[str, str]:
+    """Generate session caching parameters and metadata dictionary.
+
+    Returns a dict containing provider-compatible caching identifiers:
+    - ``session_id``: Primary session key for OpenRouter sticky routing / header.
+    - ``prompt_cache_key``: Secondary key for OpenAI / OpenRouter prompt caching.
+    - ``user``: End-user identifier for OpenAI API request tracing.
+    """
+    fmt_id = format_provider_session_id(session_id)
+    return {
+        "session_id": fmt_id,
+        "prompt_cache_key": fmt_id,
+        "user": f"user-{fmt_id}",
+    }
+
