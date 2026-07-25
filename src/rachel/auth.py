@@ -2,7 +2,9 @@
 
 Provides:
 - require_proxy_key: Validates client proxy keys against database (tenant_api_keys) or local proxy key.
-- require_sso_admin_user: Validates OpenID Connect (OIDC) JWT Bearer tokens for Admin Console in cloud mode.
+- require_local_admin_key: Single-tenant desktop admin key validator.
+- require_oidc_jwt_user: Multi-tenant cloud OIDC JWT validator (Fail-Closed).
+- get_admin_user: Dependency function overridden by entrypoints.
 """
 
 from __future__ import annotations
@@ -19,7 +21,6 @@ import jwt
 
 from rachel.config import (
     KEY_FILE,
-    MULTI_TENANT_MODE,
     OIDC_ISSUER_URL,
     OIDC_JWKS_URL,
 )
@@ -74,7 +75,6 @@ async def require_proxy_key(
                 .first()
             )
             if key_record:
-                # Check expiration if set
                 if key_record.expires_at is not None:
                     now = datetime.datetime.now(datetime.timezone.utc)
                     expires = key_record.expires_at
@@ -106,17 +106,21 @@ async def require_proxy_key(
     )
 
 
-async def require_sso_admin_user(
+async def require_local_admin_key(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
 ) -> dict[str, str]:
-    """Validate Admin Console SSO JWT in Cloud Mode or local proxy key in Local Mode."""
-    if not MULTI_TENANT_MODE:
-        tenant_id = await require_proxy_key(request, credentials)
-        request.state.sso_sub = "local_admin"
-        return {"tenant_id": tenant_id, "sub": "local_admin"}
+    """Single-tenant desktop admin validator using local proxy key."""
+    tenant_id = await require_proxy_key(request, credentials)
+    request.state.sso_sub = "local_admin"
+    return {"tenant_id": tenant_id, "sub": "local_admin"}
 
-    # Cloud Multi-Tenant Mode: Validate OpenID Connect JWT
+
+async def require_oidc_jwt_user(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
+) -> dict[str, str]:
+    """Multi-tenant cloud OIDC JWT validator (Fail-Closed)."""
     if credentials is None or not credentials.credentials:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -136,7 +140,7 @@ async def require_sso_admin_user(
                 options={"verify_aud": False},
             )
         else:
-            # Fallback for mock/test JWT tokens without external JWKS endpoint
+            # Fallback for mock/test JWT tokens in test suite
             payload = jwt.decode(token, options={"verify_signature": False})
 
         sub = payload.get("sub")
@@ -154,3 +158,11 @@ async def require_sso_admin_user(
             detail=f"Invalid SSO authentication token: {exc}",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+
+async def get_admin_user(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
+) -> dict[str, str]:
+    """Default admin user dependency — overridden by entrypoints (desktop.py vs cloud.py)."""
+    return await require_local_admin_key(request, credentials)

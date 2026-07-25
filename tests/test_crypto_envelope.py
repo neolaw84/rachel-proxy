@@ -17,16 +17,15 @@ def test_derive_kek_local_and_cloud_modes():
     # Deterministic output check
     assert derive_kek(tenant_id="local") == kek_local
 
-    with patch("rachel.config.MULTI_TENANT_MODE", True):
-        with patch("rachel.config.ENCRYPTION_MASTER_KEY", "master_test_secret_12345"):
-            kek_tenant_1 = derive_kek(tenant_id="tenant_123", sso_sub="sub_abc")
-            kek_tenant_2 = derive_kek(tenant_id="tenant_456", sso_sub="sub_def")
+    with patch("rachel.config.ENCRYPTION_MASTER_KEY", "master_test_secret_12345"):
+        kek_tenant_1 = derive_kek(tenant_id="tenant_123", sso_sub="sub_abc")
+        kek_tenant_2 = derive_kek(tenant_id="tenant_456", sso_sub="sub_def")
 
-            assert len(kek_tenant_1) == 32
-            assert len(kek_tenant_2) == 32
-            # Isolation check across tenants
-            assert kek_tenant_1 != kek_tenant_2
-            assert kek_tenant_1 != kek_local
+        assert len(kek_tenant_1) == 32
+        assert len(kek_tenant_2) == 32
+        # Isolation check across tenants
+        assert kek_tenant_1 != kek_tenant_2
+        assert kek_tenant_1 != kek_local
 
 
 def test_encrypt_decrypt_api_key_roundtrip():

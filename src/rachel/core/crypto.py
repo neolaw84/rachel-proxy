@@ -22,7 +22,7 @@ def derive_kek(tenant_id: str = "local", sso_sub: str | None = None) -> bytes:
     """Derive a 32-byte Key Encryption Key (KEK) using HKDF-SHA256."""
     from rachel.auth import PROXY_API_KEY
 
-    if not config.MULTI_TENANT_MODE or tenant_id == "local":
+    if tenant_id == "local":
         secret_bytes = PROXY_API_KEY.encode("utf-8")
         salt = b"local"
         info = b"local_admin"

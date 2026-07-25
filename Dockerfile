@@ -41,4 +41,4 @@ USER appuser
 
 EXPOSE 8000
 
-CMD ["rachel-proxy"]
+CMD ["uvicorn", "rachel.entrypoints.cloud:app", "--host", "0.0.0.0", "--port", "8000"]

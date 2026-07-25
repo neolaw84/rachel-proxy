@@ -10,7 +10,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 from unittest.mock import patch
 
-from rachel.auth import PROXY_API_KEY, require_proxy_key, require_sso_admin_user
+from rachel.auth import PROXY_API_KEY, require_local_admin_key, require_oidc_jwt_user, require_proxy_key
 from rachel.core.db import init_db
 from rachel.routes.system import router as system_router
 
@@ -71,17 +71,18 @@ def test_create_list_revoke_proxy_keys(test_app):
     assert revoked_status_res.status_code == 401
 
 
-def test_require_sso_admin_user_cloud_mode(test_app):
-    """Test require_sso_admin_user JWT validation in MULTI_TENANT_MODE=True."""
+def test_require_oidc_jwt_user_cloud_mode(test_app):
+    """Test require_oidc_jwt_user JWT validation with dependency override."""
+    from rachel.auth import get_admin_user, require_oidc_jwt_user
+    test_app.dependency_overrides[get_admin_user] = require_oidc_jwt_user
     client = TestClient(test_app)
 
     mock_jwt = jwt.encode({"sub": "user_sso_12345", "tenant_id": "tenant_sso_12345"}, "secret", algorithm="HS256")
 
-    with patch("rachel.auth.MULTI_TENANT_MODE", True):
-        # Request with valid mock JWT token
-        res = client.get("/v1/providers", headers={"Authorization": f"Bearer {mock_jwt}"})
-        assert res.status_code == 200
+    # Request with valid mock JWT token
+    res = client.get("/v1/providers", headers={"Authorization": f"Bearer {mock_jwt}"})
+    assert res.status_code == 200
 
-        # Request with missing token
-        bad_res = client.get("/v1/providers")
-        assert bad_res.status_code == 401
+    # Request with missing token
+    bad_res = client.get("/v1/providers")
+    assert bad_res.status_code == 401

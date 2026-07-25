@@ -126,13 +126,6 @@ else:
     REASONING_PAYLOAD = _match if _match is not None else REASONING_FORMATS["Open-Router"]
 
 
-# Multi-Tenant Mode Flag
-_env_mt = os.environ.get("MULTI_TENANT_MODE")
-if _env_mt is not None and _env_mt != "":
-    MULTI_TENANT_MODE: bool = _env_mt.lower() in ("true", "1", "yes")
-else:
-    MULTI_TENANT_MODE: bool = bool(_cfg.get("multi_tenant_mode", False))
-
 # PostgreSQL Connection Settings (sourced exclusively from environment)
 DATABASE_URL = os.environ.get("DATABASE_URL")
 PGDATABASE = os.environ.get("PGDATABASE")

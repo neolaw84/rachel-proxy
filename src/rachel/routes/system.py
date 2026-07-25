@@ -16,7 +16,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from rachel.auth import require_proxy_key, require_sso_admin_user
+from rachel.auth import get_admin_user, require_proxy_key
 from rachel.config import (
     CONFIG_PUBLIC_URL,
     MAX_ITERATIONS,
@@ -100,7 +100,7 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@router.get("/v1/status", dependencies=[Depends(require_sso_admin_user)])
+@router.get("/v1/status", dependencies=[Depends(get_admin_user)])
 async def proxy_status(request: Request) -> dict:
     """Return configuration and runtime status for the dashboard."""
     from rachel.sandbox.sandbox import get_sandbox_engine
@@ -128,7 +128,7 @@ async def proxy_status(request: Request) -> dict:
 # Provider & Credentials Management Endpoints
 # ---------------------------------------------------------------------------
 
-@router.get("/v1/providers", dependencies=[Depends(require_sso_admin_user)])
+@router.get("/v1/providers", dependencies=[Depends(get_admin_user)])
 async def list_providers(request: Request) -> dict[str, Any]:
     """Return configured active provider and credential status map."""
     tenant_id = getattr(request.state, "tenant_id", "local")
@@ -151,7 +151,7 @@ async def list_providers(request: Request) -> dict[str, Any]:
     }
 
 
-@router.post("/v1/providers/active", dependencies=[Depends(require_sso_admin_user)])
+@router.post("/v1/providers/active", dependencies=[Depends(get_admin_user)])
 async def set_active_provider(payload: dict[str, Any], request: Request) -> dict[str, str]:
     """Set active provider in SettingsStorage."""
     provider = payload.get("provider")
@@ -163,7 +163,7 @@ async def set_active_provider(payload: dict[str, Any], request: Request) -> dict
     return {"status": "ok", "active_provider": provider}
 
 
-@router.post("/v1/providers/credentials", dependencies=[Depends(require_sso_admin_user)])
+@router.post("/v1/providers/credentials", dependencies=[Depends(get_admin_user)])
 async def set_provider_credentials(payload: dict[str, Any], request: Request) -> dict[str, str]:
     """Save secret API key for specified provider into SettingsStorage."""
     provider = payload.get("provider")
@@ -183,7 +183,7 @@ async def set_provider_credentials(payload: dict[str, Any], request: Request) ->
 # Client Proxy Key Management Endpoints
 # ---------------------------------------------------------------------------
 
-@router.post("/v1/proxy-keys", dependencies=[Depends(require_sso_admin_user)])
+@router.post("/v1/proxy-keys", dependencies=[Depends(get_admin_user)])
 async def create_proxy_key(payload: dict[str, Any], request: Request) -> dict[str, Any]:
     """Generate a new client proxy key (sk-local-... or sk-tenant-...)."""
     from datetime import datetime, timezone, timedelta
@@ -230,7 +230,7 @@ async def create_proxy_key(payload: dict[str, Any], request: Request) -> dict[st
     }
 
 
-@router.get("/v1/proxy-keys", dependencies=[Depends(require_sso_admin_user)])
+@router.get("/v1/proxy-keys", dependencies=[Depends(get_admin_user)])
 async def list_proxy_keys(request: Request) -> dict[str, Any]:
     """List proxy keys for the active tenant."""
     from rachel.core.db import TenantApiKey, get_engine, get_sessionmaker
@@ -258,7 +258,7 @@ async def list_proxy_keys(request: Request) -> dict[str, Any]:
         return {"keys": keys_list, "count": len(keys_list)}
 
 
-@router.delete("/v1/proxy-keys/{key_id}", dependencies=[Depends(require_sso_admin_user)])
+@router.delete("/v1/proxy-keys/{key_id}", dependencies=[Depends(get_admin_user)])
 async def revoke_proxy_key(key_id: str, request: Request) -> dict[str, str]:
     """Revoke (deactivate) a client proxy key."""
     from rachel.core.db import TenantApiKey, get_engine, get_sessionmaker
