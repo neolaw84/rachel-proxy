@@ -8,10 +8,12 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import jwt
 import os
 import secrets
 from typing import Any
 import httpx
+
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -36,8 +38,6 @@ router = APIRouter(tags=["system"])
 
 _STATIC_INDEX = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static", "index.html")
 
-# In-memory store for PKCE verifiers (state -> verifier)
-_PKCE_VERIFIERS: dict[str, str] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -248,18 +248,32 @@ async def revoke_proxy_key(key_id: str, request: Request) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 # OpenRouter OAuth PKCE Flow
 # ---------------------------------------------------------------------------
+# PKCE OpenRouter OAuth Flow (Stateless, HMAC-signed JWT state tokens)
+# ---------------------------------------------------------------------------
 
 @router.get("/v1/auth/openrouter/authorize")
-async def openrouter_authorize() -> RedirectResponse:
-    """Initiate OpenRouter PKCE OAuth flow."""
-    # Generate PKCE verifier (43-128 chars base64url)
+async def openrouter_authorize(
+    request: Request,
+    tenant_id: str = Query("local"),
+) -> RedirectResponse:
+    """Initiate OpenRouter PKCE OAuth flow with a self-contained signed state token."""
+    import time
+    from rachel.auth import PROXY_API_KEY
+
+    # 1. Generate PKCE verifier (43-128 chars base64url)
     code_verifier = secrets.token_urlsafe(64)
     code_challenge = base64.urlsafe_b64encode(
         hashlib.sha256(code_verifier.encode("utf-8")).digest()
     ).decode("utf-8").rstrip("=")
 
-    state_token = secrets.token_hex(16)
-    _PKCE_VERIFIERS[state_token] = code_verifier
+    # 2. Create HMAC-SHA256 signed JWT state token encoding verifier + tenant_id (10-min exp)
+    state_payload = {
+        "cv": code_verifier,
+        "tid": tenant_id,
+        "exp": int(time.time()) + 600,
+        "aud": "pkce",
+    }
+    state_token = jwt.encode(state_payload, PROXY_API_KEY, algorithm="HS256")
 
     public_url = detect_public_url()
     callback_url = f"{public_url}/v1/auth/openrouter/callback"
@@ -280,26 +294,32 @@ async def openrouter_callback(
     state: str | None = Query(None),
 ) -> HTMLResponse:
     """Handle OpenRouter OAuth PKCE callback and exchange code for API key."""
-    code_verifier = _PKCE_VERIFIERS.pop(state, None) if state else None
-    if not code_verifier:
-        # Fallback if state was not returned
-        if _PKCE_VERIFIERS:
-            code_verifier = next(iter(_PKCE_VERIFIERS.values()))
-            _PKCE_VERIFIERS.clear()
+    from rachel.auth import PROXY_API_KEY
 
-    if not code_verifier:
-        raise HTTPException(status_code=400, detail="OAuth state mismatch or code_verifier expired.")
+    if not state:
+        raise HTTPException(status_code=400, detail="Missing OAuth state parameter.")
 
-    # Exchange authorization code for OpenRouter API key
+    # 1. Verify and decode HMAC-signed state token
+    try:
+        payload = jwt.decode(state, PROXY_API_KEY, algorithms=["HS256"], audience="pkce")
+        code_verifier = payload["cv"]
+        tenant_id = payload.get("tid", "local")
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="OAuth state mismatch or session expired. Please restart the authorization flow.",
+        ) from exc
+
+    # 2. Exchange authorization code for OpenRouter API key
     token_url = "https://openrouter.ai/api/v1/auth/keys"
-    payload = {
+    req_payload = {
         "code": code,
         "code_verifier": code_verifier,
         "code_challenge_method": "S256",
     }
 
     async with httpx.AsyncClient(timeout=30.0) as client:
-        res = await client.post(token_url, json=payload)
+        res = await client.post(token_url, json=req_payload)
         if res.status_code >= 400:
             raise HTTPException(
                 status_code=400,
@@ -310,10 +330,11 @@ async def openrouter_callback(
         if not api_key:
             raise HTTPException(status_code=500, detail="OpenRouter did not return an API key.")
 
-    # Save to SettingsStorage
-    storage = get_settings_storage()
+    # 3. Save to tenant-isolated SettingsStorage
+    storage = get_settings_storage(tenant_id=tenant_id)
     storage.set_credential("openrouter_pkce", api_key)
     storage.set_active_provider("openrouter_pkce")
+
 
     success_html = """
     <!DOCTYPE html>

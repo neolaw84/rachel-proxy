@@ -13,9 +13,19 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from rachel import config
 
+import hashlib
+
 logger = logging.getLogger(__name__)
 
 _ENCRYPT_PREFIX = "enc_v1:"
+
+
+def hash_key(raw_key: str) -> str:
+    """Return SHA-256 hex digest string for an API key."""
+    if not raw_key:
+        return ""
+    return hashlib.sha256(raw_key.strip().encode("utf-8")).hexdigest()
+
 
 
 def derive_kek(tenant_id: str = "local", sso_sub: str | None = None) -> bytes:

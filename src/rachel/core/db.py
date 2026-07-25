@@ -148,9 +148,8 @@ def get_db_session(engine: Any = None) -> Generator[ORMSession, None, None]:
         session.close()
 
 
-def hash_key(raw_key: str) -> str:
-    """Return SHA-256 hash string for an API key."""
-    return hashlib.sha256(raw_key.strip().encode("utf-8")).hexdigest()
+from rachel.core.crypto import hash_key
+
 
 
 def seed_bootstrap_key(session: ORMSession, tenant_id: str = "local") -> None:

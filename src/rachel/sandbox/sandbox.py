@@ -6,6 +6,7 @@ modify RPG state dictionaries.
 
 from __future__ import annotations
 
+import functools
 import os
 from typing import Any
 from rachel.sandbox.base import SandboxEngine
@@ -15,6 +16,7 @@ from rachel.sandbox.v8_engine import V8SandboxEngine
 # Expose Base Interface and concrete engines for compatibility
 __all__ = ["SandboxEngine", "PythonSandboxEngine", "V8SandboxEngine", "get_sandbox_engine", "execute_sandbox"]
 
+@functools.lru_cache(maxsize=1)
 def get_sandbox_engine() -> SandboxEngine:
     """Return the configured SandboxEngine instance based on environment variables."""
     engine_name = os.environ.get("RACHEL_SANDBOX_ENGINE", "v8").strip().lower()
@@ -22,6 +24,7 @@ def get_sandbox_engine() -> SandboxEngine:
         return PythonSandboxEngine()
     else:
         return V8SandboxEngine()
+
 
 def execute_sandbox(
     code: str,

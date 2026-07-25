@@ -18,14 +18,10 @@ from pathlib import Path
 from typing import Any
 
 from rachel.config import KEY_FILE
+from rachel.core.crypto import hash_key
 
 logger = logging.getLogger(__name__)
 
-
-def hash_key(raw_key: str) -> str:
-    """Return SHA-256 hash string for an API key."""
-    import hashlib
-    return hashlib.sha256(raw_key.strip().encode("utf-8")).hexdigest()
 
 
 class BaseApiKeyStorage(abc.ABC):
@@ -190,7 +186,9 @@ class RelationalApiKeyStorage(BaseApiKeyStorage):
         self.engine = engine or get_engine(db_url)
         init_db(engine=self.engine)
         self.SessionMaker = get_sessionmaker(self.engine)
-        seed_bootstrap_key(self.SessionMaker(), tenant_id=self.tenant_id)
+        with self.SessionMaker() as session:
+            seed_bootstrap_key(session, tenant_id=self.tenant_id)
+
 
     def create_key(
         self,

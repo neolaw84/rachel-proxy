@@ -21,6 +21,7 @@ import jwt
 
 from rachel.config import (
     KEY_FILE,
+    OIDC_AUDIENCE,
     OIDC_ISSUER_URL,
     OIDC_JWKS_URL,
 )
@@ -89,9 +90,14 @@ async def require_proxy_key(
     except HTTPException:
         raise
     except Exception as exc:
-        logger.warning("Error during proxy key lookup: %s", exc)
+        # SEC-06: Storage/DB infrastructure failures must NOT silently fall back to bootstrap key
+        logger.error("Authentication storage failure during proxy key lookup: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service storage unavailable.",
+        ) from exc
 
-    # 2. Fallback check against local PROXY_API_KEY
+    # 2. Fallback check against local PROXY_API_KEY (when key is simply not found in DB/file)
     if secrets.compare_digest(raw_token, PROXY_API_KEY):
         request.state.tenant_id = "local"
         return "local"
@@ -130,12 +136,15 @@ async def require_oidc_jwt_user(
         if OIDC_JWKS_URL:
             jwks_client = jwt.PyJWKClient(OIDC_JWKS_URL)
             signing_key = jwks_client.get_signing_key_from_jwt(token)
-            payload = jwt.decode(
-                token,
-                signing_key.key,
-                algorithms=["RS256", "ES256", "HS256"],
-                options={"verify_aud": False},
-            )
+            decode_kwargs: dict[str, Any] = {
+                "algorithms": ["RS256", "ES256"],  # SEC-07: Asymmetric only (no HS256)
+            }
+            if OIDC_AUDIENCE:
+                decode_kwargs["audience"] = OIDC_AUDIENCE  # SEC-08: Enforce audience verification
+            else:
+                decode_kwargs["options"] = {"verify_aud": False}
+
+            payload = jwt.decode(token, signing_key.key, **decode_kwargs)
         else:
             # Fallback for mock/test JWT tokens in test suite
             payload = jwt.decode(token, options={"verify_signature": False})
@@ -149,10 +158,11 @@ async def require_oidc_jwt_user(
         request.state.sso_sub = sub
         return {"tenant_id": tenant_id, "sub": sub}
     except Exception as exc:
+        # SEC-05: Do not leak internal exception/crypto error details to clients
         logger.warning("SSO JWT validation failed: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid SSO authentication token: {exc}",
+            detail="Invalid SSO authentication token.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -163,3 +173,4 @@ async def get_admin_user(
 ) -> dict[str, str]:
     """Default admin user dependency — overridden by entrypoints (desktop.py vs cloud.py)."""
     return await require_local_admin_key(request, credentials)
+

@@ -139,16 +139,24 @@ DEFAULT_SQLITE_PATH: Path = (_BASE_DIR / "data" / "rpg_agent.sqlite3").resolve()
 
 def get_default_db_url() -> str:
     """Return configured or derived SQL database URL (PostgreSQL or SQLite fallback)."""
-    if DATABASE_URL:
-        return DATABASE_URL
-    if any((PGHOST, PGUSER, PGDATABASE)):
-        user = PGUSER or ""
-        pwd = f":{PGPASSWORD}" if PGPASSWORD else ""
-        host = PGHOST or "localhost"
-        port = f":{PGPORT}" if PGPORT else ""
-        dbname = f"/{PGDATABASE}" if PGDATABASE else ""
+    db_url = os.environ.get("DATABASE_URL") or DATABASE_URL
+    if db_url:
+        return db_url
+    pghost = os.environ.get("PGHOST") or PGHOST
+    pguser = os.environ.get("PGUSER") or PGUSER
+    pgdatabase = os.environ.get("PGDATABASE") or PGDATABASE
+    pgpassword = os.environ.get("PGPASSWORD") or PGPASSWORD
+    pgport = os.environ.get("PGPORT") or PGPORT
+    if any((pghost, pguser, pgdatabase)):
+        user = pguser or ""
+        pwd = f":{pgpassword}" if pgpassword else ""
+        host = pghost or "localhost"
+        port = f":{pgport}" if pgport else ""
+        dbname = f"/{pgdatabase}" if pgdatabase else ""
         auth = f"{user}{pwd}@" if user or pwd else ""
+        return f"postgresql+psycopg2://{auth}{host}{port}{dbname}"
     return f"sqlite:///{DEFAULT_SQLITE_PATH}"
+
 
 
 # Envelope Encryption Master Secret (derived from environment or config)
@@ -160,6 +168,8 @@ ENCRYPTION_MASTER_KEY: str = os.environ.get(
 # OpenID Connect / SSO Settings for Cloud Mode
 OIDC_ISSUER_URL: str | None = os.environ.get("OIDC_ISSUER_URL", _cfg.get("oidc", {}).get("issuer_url"))
 OIDC_JWKS_URL: str | None = os.environ.get("OIDC_JWKS_URL", _cfg.get("oidc", {}).get("jwks_url"))
+OIDC_AUDIENCE: str | None = os.environ.get("OIDC_AUDIENCE", _cfg.get("oidc", {}).get("audience"))
+
 
 
 

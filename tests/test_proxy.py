@@ -22,7 +22,9 @@ def setup_test_credentials(tmp_path, monkeypatch):
             return {"openrouter_byok": "mock_key"}
 
     mock_storage = MockStorage()
-    monkeypatch.setattr("rachel.routes.completions.get_settings_storage", lambda: mock_storage)
+    monkeypatch.setattr("rachel.routes.completions.get_settings_storage", lambda *args, **kwargs: mock_storage)
+
+
 
 
 @pytest.fixture()

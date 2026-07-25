@@ -42,9 +42,9 @@ router = APIRouter(tags=["completions"])
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _get_active_provider_config() -> tuple[str, str, str, str]:
-    """Retrieve active provider configuration and credentials from SettingsStorage."""
-    storage = get_settings_storage()
+def _get_active_provider_config(tenant_id: str = "local") -> tuple[str, str, str, str]:
+    """Retrieve active provider configuration and credentials from SettingsStorage for given tenant."""
+    storage = get_settings_storage(tenant_id=tenant_id)
     active_provider, base_url, api_key, default_model = storage.get_active_provider_details()
     if not api_key:
         raise HTTPException(
@@ -65,7 +65,7 @@ def _log_request(
     turn_key: str,
     prev_turn_key: str | None,
 ) -> None:
-    """Log request metadata and body at debug level."""
+    """Log request metadata and sanitized payload summary at debug level."""
     meta = {
         "method": request.method,
         "url": str(request.url),
@@ -83,16 +83,24 @@ def _log_request(
     if "authorization" in headers_dict:
         headers_dict["authorization"] = "Bearer <REDACTED>"
 
+    # ENG-11: Redact message content bodies to preserve data privacy in logs
+    payload_summary = {
+        "model": payload.get("model"),
+        "message_count": len(payload.get("messages", [])) if isinstance(payload.get("messages"), list) else 0,
+        "stream": payload.get("stream", False),
+    }
+
     logger.debug(
         "Incoming Request: session_id=%s turn_key=%s prev_turn_key=%s. "
-        "Meta: %s | Headers: %s | Payload: %s",
+        "Meta: %s | Headers: %s | PayloadSummary: %s",
         session_id,
         turn_key,
         prev_turn_key,
         _json.dumps(meta, ensure_ascii=False),
         _json.dumps(headers_dict, ensure_ascii=False),
-        _json.dumps(payload, ensure_ascii=False),
+        _json.dumps(payload_summary, ensure_ascii=False),
     )
+
 
 
 def _make_sse_chunk(
@@ -331,7 +339,9 @@ async def proxy_chat_completions(
     session_id: str | None = None,
 ) -> Any:
     """Proxy a chat completion request through the LangGraph RPG agent."""
-    active_provider, base_url, api_key, default_model = _get_active_provider_config()
+    tenant_id = getattr(request.state, "tenant_id", "local")
+    active_provider, base_url, api_key, default_model = _get_active_provider_config(tenant_id=tenant_id)
+
 
     explicit_sid = session_id or request.query_params.get("session_id")
 
