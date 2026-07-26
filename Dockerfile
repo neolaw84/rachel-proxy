@@ -27,7 +27,7 @@ COPY pyproject.toml configs.yaml README.md ./
 COPY src/ ./src/
 
 # Copy compiled cloud frontend static assets directly into Python package static directory
-COPY --from=frontend-builder /app/dist/cloud/ ./src/rachel/static/
+COPY --from=frontend-builder /app/frontend/dist/cloud/ ./src/rachel/static/
 
 # Install python package with cloud optional dependencies
 RUN pip install --no-cache-dir .[cloud]

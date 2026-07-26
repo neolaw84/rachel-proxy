@@ -31,7 +31,7 @@ def main():
         print(f"Error: Frontend build failed with exit code {result.returncode}", file=sys.stderr)
         sys.exit(result.returncode)
 
-    dist_src = REPO_ROOT / "dist" / args.target
+    dist_src = REPO_ROOT / "frontend" / "dist" / args.target
     if not dist_src.exists():
         print(f"Error: Expected dist output directory not found at {dist_src}", file=sys.stderr)
         sys.exit(1)

@@ -226,6 +226,7 @@ data
 
 # Compiled frontend static assets (built from frontend/ via python scripts/build_frontend.py)
 src/rachel/static/
+frontend/dist/
 
 # Node.js dependencies
 node_modules/

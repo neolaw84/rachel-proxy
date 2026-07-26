@@ -3,7 +3,7 @@ import { resolve } from 'path';
 
 export default defineConfig(({ mode }) => {
   const isCloud = mode === 'cloud';
-  const outDir = isCloud ? 'dist/cloud' : 'dist/local';
+  const outDir = isCloud ? 'frontend/dist/cloud' : 'frontend/dist/local';
 
   return {
     root: 'frontend',
