@@ -1,0 +1,15 @@
+{
+  "name": "rachel-proxy-frontend",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build:local": "vite build --mode desktop",
+    "build:cloud": "vite build --mode cloud",
+    "build": "npm run build:local && npm run build:cloud"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0"
+  }
+}

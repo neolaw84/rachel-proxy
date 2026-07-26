@@ -1,0 +1,72 @@
+name: Release & Package Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-desktop-packages:
+    name: Build Desktop Release Packages
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install Frontend Dependencies
+        run: npm ci
+
+      - name: Build Desktop Packages
+        run: python scripts/build_desktop_package.py --platform all
+
+      - name: Release Artifacts to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/rpg-agent-*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-pypi:
+    name: Build & Publish PyPI Package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install Frontend Dependencies
+        run: npm ci
+
+      - name: Build Frontend Static Assets
+        run: python scripts/build_frontend.py --target local
+
+      - name: Build PyPI Source & Wheel Distributions
+        run: |
+          pip install build
+          python -m build
+
+      - name: Publish Package to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        continue-on-error: true

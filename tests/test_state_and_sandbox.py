@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from rpg_agent.core.state import SessionStateStore
-from rpg_agent.sandbox.sandbox import execute_sandbox
+from rachel.core.state import SessionStateStore
+from rachel.sandbox.sandbox import execute_sandbox
 
 
 # ---------------------------------------------------------------------------
@@ -117,7 +117,7 @@ def test_list_sessions(tmp_path):
 # Sandbox tests
 # ---------------------------------------------------------------------------
 
-from rpg_agent.sandbox.sandbox import PythonSandboxEngine, V8SandboxEngine
+from rachel.sandbox.sandbox import PythonSandboxEngine, V8SandboxEngine
 
 # --- Python Engine Tests ---
 
@@ -241,4 +241,163 @@ def test_v8_sandbox_non_dict_state_reverts():
     updated, output = engine.execute(code, original)
     assert updated == original
     assert "Warning" in output
+
+
+# ---------------------------------------------------------------------------
+# Session tests
+# ---------------------------------------------------------------------------
+
+from rachel.core.session import (
+    resolve_session_id,
+    extract_system_suffix_hash,
+    extract_session_from_proxy_annotation,
+    extract_first_assistant_suffix_hash,
+)
+import hashlib
+
+def test_extract_system_suffix_hash_scans_newest_to_oldest():
+    messages = [
+        {"role": "system", "content": "This is system prompt A"},
+        {"role": "user", "content": "Hello"},
+        {"role": "system", "content": "This is system prompt B"},
+    ]
+    
+    # It should extract from the newest (bottom-most) system message, which is "This is system prompt B"
+    hash_b = extract_system_suffix_hash([{"role": "system", "content": "This is system prompt B"}])
+    assert extract_system_suffix_hash(messages) == hash_b
+
+
+def test_extract_session_from_proxy_annotation():
+    # 1. No assistant message
+    assert extract_session_from_proxy_annotation([{"role": "user", "content": "Hi"}]) is None
+
+    # 2. Assistant message without annotation
+    assert extract_session_from_proxy_annotation([
+        {"role": "assistant", "content": "Hello player!"}
+    ]) is None
+
+    # 3. Newest first scan
+    messages = [
+        {"role": "assistant", "content": "[proxy: session=old-session turn=xyz]\n\nFirst"},
+        {"role": "user", "content": "Hello"},
+        {"role": "assistant", "content": "[proxy: session=new-session turn=abc]\n\nSecond"},
+    ]
+    assert extract_session_from_proxy_annotation(messages) == "new-session"
+
+
+def test_extract_first_assistant_suffix_hash():
+    # 1. No assistant message
+    assert extract_first_assistant_suffix_hash([{"role": "user", "content": "Hi"}]) is None
+
+    # 2. Assistant message with whitespace and proxy block
+    messages = [
+        {"role": "user", "content": "Hi"},
+        {"role": "assistant", "content": "[proxy: session=sess turn=xyz]\n\nHello   World \n\n Good game. "},
+        {"role": "assistant", "content": "Should be ignored since it is the second assistant message."},
+    ]
+    # Content of first assistant: "Hello   World \n\n Good game. "
+    # Stripped proxy: "Hello   World \n\n Good game. "
+    # Stripped whitespace: "HelloWorldGoodgame."
+    # len("HelloWorldGoodgame.") is 19. Suffix is "HelloWorldGoodgame."
+    expected_hash = hashlib.md5(b"HelloWorldGoodgame.").hexdigest()[:16]
+    assert extract_first_assistant_suffix_hash(messages) == expected_hash
+
+
+def test_resolve_session_id_4_levels():
+    messages = [
+        {"role": "system", "content": "System prompt info"},
+        {"role": "assistant", "content": "[proxy: session=prox-sess turn=xyz]\n\nHello player"},
+        {"role": "user", "content": "Shan Yu: [session: ooc-sess] I attack!"},
+    ]
+
+    # Level 1: Explicit session ID
+    assert resolve_session_id(messages, explicit_session_id="explicit-sess") == ("explicit-sess", "explicit")
+
+    # Level 2: OOC tag
+    assert resolve_session_id(messages) == ("ooc-sess", "ooc-tag")
+
+    # Level 3: Proxy annotation (no OOC tag)
+    messages_no_ooc = [
+        {"role": "system", "content": "System prompt info"},
+        {"role": "assistant", "content": "[proxy: session=prox-sess turn=xyz]\n\nHello player"},
+        {"role": "user", "content": "Shan Yu: I attack!"},
+    ]
+    assert resolve_session_id(messages_no_ooc) == ("prox-sess", "proxy-annotation")
+
+    # Level 4: First assistant suffix hash + username hash (no OOC, no proxy annotation)
+    messages_fallback = [
+        {"role": "system", "content": "System prompt info"},
+        {"role": "assistant", "content": "Hello World. Good game."},
+        {"role": "user", "content": "Shan Yu: I attack!"},
+    ]
+    # Suffix hash for "HelloWorld.Goodgame." is md5 of it.
+    asst_hash = hashlib.md5(b"HelloWorld.Goodgame.").hexdigest()[:16]
+    # Username hash for "Shan Yu" is md5 of it.
+    u_hash = hashlib.md5(b"Shan Yu").hexdigest()[:16]
+    expected_l4 = f"{asst_hash}__{u_hash}"
+    assert resolve_session_id(messages_fallback) == (expected_l4, "assistant-suffix-hash+username-hash")
+
+    # Level 4: Only username hash (no assistant message yet)
+    messages_no_asst = [
+        {"role": "system", "content": "System prompt info"},
+        {"role": "user", "content": "Shan Yu: I attack!"},
+    ]
+    assert resolve_session_id(messages_no_asst) == (u_hash, "assistant-suffix-hash+username-hash")
+
+
+def test_roll_xdy_python_tool():
+    from rachel.agent.tools import make_tools, get_dice_interpretation
+    
+    interp = get_dice_interpretation(4, {4: "crit fail", 8: "fail", 16: "success", 18: "crit success"})
+    assert interp == "crit fail"
+    interp_8 = get_dice_interpretation(5, {4: "crit fail", 8: "fail", 16: "success", 18: "crit success"})
+    assert interp_8 == "fail"
+
+    state_container = {"rpg_state": {}}
+    tools = {t.name: t for t in make_tools(state_container, 2.0)}
+    assert "random_int" not in tools
+    
+    res = tools["roll_xdy"].invoke({
+        "num_dice": 3,
+        "num_sides": 6,
+        "interpretation": {4: "crit fail", 8: "fail", 16: "success", 18: "crit success"}
+    })
+    assert isinstance(res, dict)
+    assert len(res["rolls"]) == 3
+    assert res["total"] == sum(res["rolls"])
+    assert res["interpretation"].startswith("interpretation of the dice roll is '")
+
+
+def test_roll_xdy_in_v8_sandbox():
+    from rachel.sandbox.v8_engine import V8SandboxEngine
+    engine = V8SandboxEngine()
+    code = """
+    var res = roll_xdy(3, 6, {"4": "crit fail", "8": "fail", "16": "success", "18": "crit success"});
+    state.res = res;
+    """
+    updated_state, output = engine.execute(code, {}, 2.0)
+    assert "res" in updated_state
+    res = updated_state["res"]
+    assert isinstance(res["rolls"], list) and len(res["rolls"]) == 3
+    assert res["total"] == sum(res["rolls"])
+    assert res["interpretation"].startswith("interpretation of the dice roll is '")
+    assert "interpretation of the dice roll is '" in output
+
+
+def test_roll_xdy_in_python_sandbox():
+    from rachel.sandbox.python_engine import PythonSandboxEngine
+    engine = PythonSandboxEngine()
+    code = """
+res = roll_xdy(3, 6, {4: "crit fail", 8: "fail", 16: "success", 18: "crit success"})
+state['res'] = res
+"""
+    updated_state, output = engine.execute(code, {}, 2.0)
+    assert "res" in updated_state
+    res = updated_state["res"]
+    assert isinstance(res["rolls"], list) and len(res["rolls"]) == 3
+    assert res["total"] == sum(res["rolls"])
+    assert res["interpretation"].startswith("interpretation of the dice roll is '")
+    assert "interpretation of the dice roll is '" in output
+
+
 

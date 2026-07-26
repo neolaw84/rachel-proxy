@@ -1,11 +1,20 @@
-# Proxy configuration
-# All paths are relative to the repository root.
+server:
+  # Externally reachable base URL override (e.g. "https://my-proxy.example.com").
+  # Leave empty/null to auto-detect from SPACE_HOST, RAILWAY_PUBLIC_DOMAIN, or localhost.
+  public_url: null
 
 state:
+  # Storage engine: "file" (default) or "postgres"
+  engine: "file"
   # Number of recent turns to retain in the FIFO session store.
   num_states_to_track: 32
   # Directory where per-session JSON files are written (gitignored).
   storage_dir: "data/states"
+  # Programmatic guardrails for state complexity
+  max_string_length: 128
+  max_depth: 8
+  max_width: 64
+
 
 sandbox:
   # Wall-clock timeout (seconds) for each code execution inside the sandbox.
@@ -14,7 +23,7 @@ sandbox:
 langgraph:
   # Maximum LLM ↔ Tool round-trips per request before the graph is forced
   # to stop.  Set to 6 so a stuck loop cannot spin indefinitely.
-  max_iterations: 6
+  max_iterations: 8
 
 llm:
   # The full completions API endpoint URL.
@@ -35,7 +44,9 @@ llm:
 
 # Configuration for plan and summary updates
 orchestration:
-  plan_summary_gap: 1
+  plan_offset: 2
+  plan_summary_gap: 8
+  plan_cleanup_gap: 9
   plan:
     # Trigger configurations: "periodic", "probabilistic", or "disabled"
     trigger_type: "periodic"
@@ -60,6 +71,18 @@ orchestration:
       base_url: "https://openrouter.ai/api/v1/chat/completions"
       include_reasoning: true
       temperature: 0.9
+
+  cleanup:
+    # Trigger configurations: "periodic", "probabilistic", or "disabled"
+    trigger_type: "periodic"
+    interval_turns:  8
+    trigger_probability: 0.10
+    bundle_llm: true
+    llm:
+      model: "google/gemini-3.5-flash"
+      base_url: "https://openrouter.ai/api/v1/chat/completions"
+      include_reasoning: true
+      temperature: 0.2
 
 
 

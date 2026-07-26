@@ -221,3 +221,11 @@ __marimo__/
 proxy.key
 
 data
+
+.vscode
+
+# Compiled frontend static assets (built from frontend/ via python scripts/build_frontend.py)
+src/rachel/static/
+
+# Node.js dependencies
+node_modules/

@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RACHEL Proxy — Dashboard</title>
+  <meta name="description"
+    content="Administration dashboard for the RPG Agent Proxy. Monitor status, manage sessions, and copy credentials." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet" />
+  <link rel="stylesheet" href="/src/styles/main.css" />
+</head>
+
+<body>
+
+  <div id="auth-container"></div>
+  <div id="confirm-overlay" class="hidden">
+    <div class="confirm-box">
+      <h3 id="confirm-title">Are you sure?</h3>
+      <p id="confirm-msg"></p>
+      <div class="confirm-actions">
+        <button id="confirm-cancel" class="btn btn-ghost">Cancel</button>
+        <button id="confirm-ok" class="btn btn-danger">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast-container"></div>
+
+  <div id="app">
+    <header id="header-container"></header>
+
+    <main id="main-container">
+      <!-- Tab 1: Setup & Provider -->
+      <div id="view-setup" class="tab-view active">
+        <div class="view-single-column">
+          <div id="credentials-helper-container"></div>
+          <div id="provider-settings-container"></div>
+        </div>
+      </div>
+
+      <!-- Tab 2: Session Inspector -->
+      <div id="view-sessions" class="tab-view">
+        <div class="view-sessions-layout">
+          <aside id="sidebar-container"></aside>
+          <div id="session-inspector-container"></div>
+        </div>
+      </div>
+
+      <!-- Tab 3: Proxy Keys -->
+      <div id="view-keys" class="tab-view">
+        <div class="view-single-column">
+          <div id="proxy-keys-container"></div>
+        </div>
+      </div>
+
+      <!-- Tab 4: System Status -->
+      <div id="view-status" class="tab-view">
+        <div class="view-single-column">
+          <div id="proxy-status-container"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+
+</html>
+
