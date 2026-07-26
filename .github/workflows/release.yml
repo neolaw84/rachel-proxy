@@ -9,6 +9,8 @@ jobs:
   build-desktop-packages:
     name: Build Desktop Release Packages
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
