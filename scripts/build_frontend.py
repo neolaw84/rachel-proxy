@@ -26,7 +26,8 @@ def main():
     cmd = ["npm", "run", f"build:{args.target}"]
     print(f"Building frontend target '{args.target}' (npm mode '{mode_flag}')...")
 
-    result = subprocess.run(cmd, cwd=REPO_ROOT)
+    # On Windows, subprocess.run requires shell=True to find and execute batch/cmd scripts like npm
+    result = subprocess.run(cmd, cwd=REPO_ROOT, shell=os.name == "nt")
     if result.returncode != 0:
         print(f"Error: Frontend build failed with exit code {result.returncode}", file=sys.stderr)
         sys.exit(result.returncode)

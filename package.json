@@ -10,6 +10,6 @@
     "build": "npm run build:local && npm run build:cloud"
   },
   "devDependencies": {
-    "vite": "^5.4.0"
+    "vite": "^8.1.5"
   }
 }
