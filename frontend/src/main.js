@@ -112,9 +112,9 @@ document.addEventListener('DOMContentLoaded', () => {
     },
   });
 
-  proxyKeysPanel = renderProxyKeysPanel(proxyKeysContainer);
+  proxyKeysPanel = renderProxyKeysPanel(proxyKeysContainer, { isCloud });
 
-  credentialsHelper = renderCredentialsHelper(credentialsContainer);
+  credentialsHelper = renderCredentialsHelper(credentialsContainer, { isCloud });
 
   proxyStatus = renderProxyStatus(statusContainer, {
     onStatusLoaded: (data) => {

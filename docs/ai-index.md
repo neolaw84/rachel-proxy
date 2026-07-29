@@ -7,9 +7,13 @@ Welcome to the RACHEL (rachel-proxy) repository! This file serves as the main in
 
 ---
 
-## TABOOS
+## TABOOS & FIRST-PRINCIPLES RULES
 * **NEVER** attempt to read or retrieve `.env` variables or private key files (`proxy.key`) via filesystem commands.
 * **NEVER** hardcode absolute file paths (e.g., `/home/...`, `/Users/...`, `C:\...`, or `file:///...`) in source code, tests, or documentation. Always use relative paths or derive paths dynamically using `Path(__file__).resolve().parent`.
+* **First-Principles Intent Verification**: Coding Agents MUST NOT blindly add feature $X$ when the user requests $X$. Agents must reverse-engineer the request, analyze root causes and system-wide impacts across the entire architecture (backend routers, database schemas, frontend components, static targets), consult with the user to verify intent when ambiguous, and present all related changes needed for the system to function as a unified whole.
+  * **Contract Primacy**: Always trace and verify exact backend route definitions (`src/rachel/routes/`) against frontend calls (`frontend/src/`) before modifying code. Never guess endpoint paths or payload keys. (See [docs/architecture-and-guidelines.md](architecture-and-guidelines.md)).
+  * **UX Completeness**: Never leave frontend user actions stopping at `alert()`, `console.log()`, or raw placeholders, unless explicitly requested or approved by the user. Provide complete UI affordances (modals, copy buttons, feedback toasts).
+  * **Dual Target Verification**: Whenever frontend files under `frontend/` are modified, verify compilation and asset synchronization using `venv/bin/python scripts/build_frontend.py --target local` and `--target cloud`.
 
 ---
 
@@ -23,39 +27,13 @@ Welcome to the RACHEL (rachel-proxy) repository! This file serves as the main in
 
 ## 2. Project Layout & Configuration
 
-The codebase is organized into modular concerns:
+The codebase is organized into modular concerns spanning backend python modules (`src/rachel/`), frontend SPA sources (`frontend/`), automated test suite (`tests/`), and build scripts (`scripts/`).
 
-```
-src/rachel/
-├── proxy.py                # App entrypoint (FastAPI initialization & assembly)
-├── auth.py                 # Authorization middleware & keys verification
-├── config.py               # Config resolver for environment & configs.yaml
-│
-├── agent/                  # LangGraph & Agent core logic
-│   ├── graph.py            # LangGraph state & node orchestrations
-│   ├── prompts.py          # Dynamic system prompt generator
-│   ├── openrouter.py       # Client implementation & API calls
-│   ├── reasoning_formats.py # Model configurations
-│   └── tools.py            # LangChain tool registrations (sandbox, dice, RNG)
-│
-├── core/                   # Session & Core Domain Logic
-│   ├── session.py          # Session parsing & turn-key generation
-│   └── state.py            # SessionStateStore (LRU files tracking)
-│
-├── routes/                 # API controllers / HTTP handlers
-│   ├── completions.py      # POST /v1/chat/completions
-│   ├── sessions.py         # Session CRUD management
-│   └── system.py           # Dashboard SPA, health, status endpoints
-│
-├── sandbox/                # Isolated code execution layers
-│   ├── sandbox.py          # SandboxEngine interface definition & implementations
-│   └── schemas.py          # JSON Schemas for OpenRouter tool definitions
-│
-└── templates/              # HTML & static template files
-    └── index.html          # SPA dashboard front-end page
-```
+👉 **[docs/project-layout-and-semantics.md](project-layout-and-semantics.md)**: **Complete Directory Tree & Component Semantics Map**.
 
 ### Documentation & Specifications
+* **[docs/architecture-and-guidelines.md](architecture-and-guidelines.md)**: Authoritative Architectural Blueprint & First-Principles Workflow.
+* **[docs/project-layout-and-semantics.md](project-layout-and-semantics.md)**: Complete Directory Layout Tree & Component Semantics Map.
 * **[docs/why-rachel.md](why-rachel.md)**: Core features, benefits, assumptions, and design philosophies of RACHEL.
 * **[docs/all-about-sessions.md](all-about-sessions.md)**: Detailed guide on session ID resolution hierarchy, turn key state tracking, and session CRUD API endpoints.
 * **[docs/all-about-auth.md](all-about-auth.md)**: Comprehensive guide detailing the three authentication & authorization boundaries (Chat Client, Admin Panel/SSO, LLM Providers/PKCE/BYOK).

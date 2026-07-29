@@ -207,6 +207,7 @@ async def run_agent(
     final_state = await compiled.ainvoke(initial_state, config=config)
 
     # Extract final AIMessage details and accumulate reasoning across turns
+    from rachel.agent.openrouter import parse_think_tags
     final_content = ""
     reasoning_parts = []
     for msg in final_state["messages"]:
@@ -214,12 +215,15 @@ async def run_agent(
             content = msg.content or ""
             if not isinstance(content, str):
                 content = str(content)
-            if content:
-                final_content = content
+            clean, think = parse_think_tags(content)
+            if think:
+                reasoning_parts.append(think)
+            if clean:
+                final_content = clean
             rc = msg.additional_kwargs.get("reasoning_content")
             if rc:
                 reasoning_parts.append(rc)
-    final_reasoning = "\n\n".join(reasoning_parts)
+    final_reasoning = "\n\n".join(r for r in reasoning_parts if r)
 
     return {
         "content": final_content,

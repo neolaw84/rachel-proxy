@@ -10,6 +10,134 @@ from rachel.sandbox.schemas import get_tools_schema
 from rachel.sandbox.sandbox import get_sandbox_engine
 from rachel.config import INCLUDE_REASONING, REASONING_PAYLOAD
 
+import re
+
+import re
+
+def parse_think_tags(text: str) -> tuple[str, str]:
+    """Extract reasoning from <think>, <thought>, <thinking>, <reasoning> tags and return (clean_content, extracted_reasoning).
+    
+    Handles both closed tags `<think>reasoning</think>` and unclosed `<think>reasoning`.
+    """
+    if not text:
+        return "", ""
+
+    reasoning_parts = []
+    
+    # 1. Matches complete <think>...</think>, <thought>...</thought>, etc.
+    pattern = re.compile(r"<(think|thought|thinking|reasoning)[^>]*>(.*?)</\1>", re.DOTALL | re.IGNORECASE)
+    
+    def replacer(match: re.Match) -> str:
+        reasoning_parts.append(match.group(2))
+        return ""
+
+    clean_content = pattern.sub(replacer, text)
+    
+    # 2. Match unclosed <think>... at the end of text
+    unclosed_pattern = re.compile(r"<(think|thought|thinking|reasoning)[^>]*>(.*)$", re.DOTALL | re.IGNORECASE)
+    match = unclosed_pattern.search(clean_content)
+    if match:
+        clean_content = clean_content[:match.start()]
+        reasoning_parts.append(match.group(2))
+
+    extracted_reasoning = "\n\n".join(r.strip() for r in reasoning_parts if r.strip())
+    clean_content = clean_content.strip()
+    
+    return clean_content, extracted_reasoning
+
+
+class IncrementalThinkParser:
+    """Stream parser that detects <think>, <thought>, <thinking>, <reasoning> tags in real-time as chunks arrive."""
+    
+    OPEN_PATTERN = re.compile(r"<(think|thought|thinking|reasoning)[^>]*>", re.IGNORECASE)
+    CLOSE_PATTERN = re.compile(r"</(think|thought|thinking|reasoning)>", re.IGNORECASE)
+    
+    def __init__(self, stream_queue: asyncio.Queue | None):
+        self.stream_queue = stream_queue
+        self.in_think = False
+        self.buf = ""
+        self.extracted_reasoning = []
+        self.extracted_content = []
+
+    async def feed(self, chunk: str) -> None:
+        if not chunk:
+            return
+        
+        self.buf += chunk
+        
+        while self.buf:
+            if not self.in_think:
+                match = self.OPEN_PATTERN.search(self.buf)
+                if match:
+                    pre_content = self.buf[:match.start()]
+                    if pre_content:
+                        self.extracted_content.append(pre_content)
+                        if self.stream_queue:
+                            await self.stream_queue.put(("content", pre_content))
+                    
+                    self.in_think = True
+                    self.buf = self.buf[match.end():]
+                else:
+                    if "<" in self.buf:
+                        idx = self.buf.rfind("<")
+                        safe_content = self.buf[:idx]
+                        if safe_content:
+                            self.extracted_content.append(safe_content)
+                            if self.stream_queue:
+                                await self.stream_queue.put(("content", safe_content))
+                        self.buf = self.buf[idx:]
+                        break
+                    else:
+                        self.extracted_content.append(self.buf)
+                        if self.stream_queue:
+                            await self.stream_queue.put(("content", self.buf))
+                        self.buf = ""
+            else:
+                match = self.CLOSE_PATTERN.search(self.buf)
+                if match:
+                    think_text = self.buf[:match.start()]
+                    if think_text:
+                        self.extracted_reasoning.append(think_text)
+                        if self.stream_queue:
+                            await self.stream_queue.put(("reasoning", think_text))
+                    
+                    self.in_think = False
+                    self.buf = self.buf[match.end():]
+                else:
+                    if "<" in self.buf:
+                        idx = self.buf.rfind("<")
+                        safe_think = self.buf[:idx]
+                        if safe_think:
+                            self.extracted_reasoning.append(safe_think)
+                            if self.stream_queue:
+                                await self.stream_queue.put(("reasoning", safe_think))
+                        self.buf = self.buf[idx:]
+                        break
+                    else:
+                        self.extracted_reasoning.append(self.buf)
+                        if self.stream_queue:
+                            await self.stream_queue.put(("reasoning", self.buf))
+                        self.buf = ""
+
+    async def flush(self) -> None:
+        if not self.buf:
+            return
+        
+        if self.in_think:
+            clean_buf = self.CLOSE_PATTERN.sub("", self.buf).strip()
+            if clean_buf:
+                self.extracted_reasoning.append(clean_buf)
+                if self.stream_queue:
+                    await self.stream_queue.put(("reasoning", clean_buf))
+        else:
+            clean_buf = self.OPEN_PATTERN.sub("", self.buf).strip()
+            if clean_buf:
+                self.extracted_content.append(clean_buf)
+                if self.stream_queue:
+                    await self.stream_queue.put(("content", clean_buf))
+        self.buf = ""
+
+
 def deep_merge(dict1: dict, dict2: dict) -> dict:
     """Recursively merge dict2 into dict1."""
     for key, value in dict2.items():
@@ -104,7 +232,7 @@ async def call_llm_streaming(
     if stream_queue is not None:
         final_content = []
         final_reasoning = []
-        turn_content_chunks = []
+        parser = IncrementalThinkParser(stream_queue)
         tool_calls_map = {}
 
         async with httpx.AsyncClient(timeout=120.0) as client:
@@ -135,17 +263,21 @@ async def call_llm_streaming(
                         continue
                     delta = choices[0].get("delta", {})
 
-                    # 1. Parse reasoning_content
-                    rc = delta.get("reasoning_content") or delta.get("reasoning")
+                    # 1. Parse native reasoning_content / reasoning / thought / thinking
+                    rc = (
+                        delta.get("reasoning_content")
+                        or delta.get("reasoning")
+                        or delta.get("thought")
+                        or delta.get("thinking")
+                    )
                     if rc:
-                        final_reasoning.append(rc)
-                        await stream_queue.put(("reasoning", rc))
+                        final_reasoning.append(str(rc))
+                        await stream_queue.put(("reasoning", str(rc)))
 
-                    # 2. Parse content into turn buffer
+                    # 2. Parse content into turn buffer with incremental real-time tag extraction
                     c = delta.get("content")
                     if c:
-                        final_content.append(c)
-                        turn_content_chunks.append(c)
+                        await parser.feed(c)
 
                     # 3. Parse tool_calls
                     tcs = delta.get("tool_calls", [])
@@ -165,15 +297,12 @@ async def call_llm_streaming(
                         arg_frag = tc.get("function", {}).get("arguments", "")
                         tool_calls_map[idx]["arguments"] += arg_frag
 
-        # Flush buffered content according to whether tool calls were made
-        if turn_content_chunks:
-            turn_text = "".join(turn_content_chunks)
-            if tool_calls_map:
-                # Turn had tool calls: intermediate content belongs in reasoning/logs to keep thinking box open
-                await stream_queue.put(("reasoning", turn_text))
-            else:
-                # Turn had no tool calls: final response content
-                await stream_queue.put(("content", turn_text))
+        # Flush incremental parser
+        await parser.flush()
+        if parser.extracted_content:
+            final_content.append("".join(parser.extracted_content))
+        if parser.extracted_reasoning:
+            final_reasoning.append("".join(parser.extracted_reasoning))
 
         tc_list = []
         for idx in sorted(tool_calls_map.keys()):
@@ -200,10 +329,21 @@ async def call_llm_streaming(
 
             res_json = response.json()
             msg = res_json["choices"][0]["message"]
-            content = msg.get("content") or ""
-            reasoning = msg.get("reasoning_content") or msg.get("reasoning") or ""
+            raw_content = msg.get("content") or ""
+            reasoning = (
+                msg.get("reasoning_content")
+                or msg.get("reasoning")
+                or msg.get("thought")
+                or msg.get("thinking")
+                or ""
+            )
             tcs = msg.get("tool_calls") or []
-            return content, reasoning, tcs
+
+            clean_content, think_reasoning = parse_think_tags(raw_content)
+            if think_reasoning:
+                reasoning = f"{reasoning}\n{think_reasoning}".strip() if reasoning else think_reasoning
+
+            return clean_content, reasoning, tcs
 
 async def call_llm_direct(
     api_key: str,
@@ -244,7 +384,9 @@ async def call_llm_direct(
         if response.status_code >= 400:
             raise RuntimeError(f"Provider API error ({response.status_code}): {response.text}")
         res_json = response.json()
-        return res_json["choices"][0]["message"].get("content") or ""
+        raw_content = res_json["choices"][0]["message"].get("content") or ""
+        clean_content, _ = parse_think_tags(raw_content)
+        return clean_content
 
 # Backward compatibility aliases
 call_openrouter_streaming = call_llm_streaming

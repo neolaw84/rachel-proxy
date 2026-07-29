@@ -29,9 +29,12 @@ export function renderCredentialsHelper(container, { isCloud = false } = {}) {
               <button class="btn btn-primary btn-sm" id="btn-create-cloud-key">➕ Create New Key</button>
             </div>
             <div id="new-key-display-box" class="hidden" style="background:rgba(34,211,110,0.1);border:1px solid rgba(34,211,110,0.4);border-radius:var(--radius-sm);padding:12px;display:flex;flex-direction:column;gap:8px;">
-              <span style="color:var(--green);font-weight:600;font-size:0.8rem;">🎉 New Client Key Created! (Save now, won't be shown again)</span>
+              <div style="display:flex;justify-content:space-between;align-items:center;">
+                <span style="color:var(--green);font-weight:600;font-size:0.8rem;">🎉 New Client Key Created! (Save now, won't be shown again)</span>
+                <button class="btn btn-ghost btn-sm" id="btn-close-cloud-key-box" style="padding:2px 8px;">✕ Close</button>
+              </div>
               <div class="cred-row" style="margin:0;background:rgba(12,16,36,0.9);">
-                <span id="new-key-raw" class="cred-value" style="color:var(--green);"></span>
+                <span id="new-key-raw" class="cred-value" style="color:var(--green);font-family:monospace;word-break:break-all;"></span>
                 <button class="btn btn-copy" id="btn-copy-new-key">📋 Copy Secret Key</button>
               </div>
             </div>
@@ -131,6 +134,13 @@ export function renderCredentialsHelper(container, { isCloud = false } = {}) {
         })
         .catch(() => showToast('Failed to create key.', 'err'));
     };
+
+    const closeKeyBoxBtn = document.getElementById('btn-close-cloud-key-box');
+    if (closeKeyBoxBtn) {
+      closeKeyBoxBtn.onclick = () => {
+        newKeyBox.classList.add('hidden');
+      };
+    }
 
     if (copyNewKeyBtn) {
       copyNewKeyBtn.onclick = function () {

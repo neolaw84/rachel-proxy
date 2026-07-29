@@ -24,7 +24,7 @@ class MockAsyncLineStream:
 
 @pytest.mark.asyncio
 async def test_streaming_buffers_content_in_tool_calling_turn():
-    """Test that if an LLM turn produces tool calls, intermediate content is routed to reasoning to keep thinking box open."""
+    """Test that LLM turn produces both reasoning and content properly without reclassifying content."""
     stream_queue = asyncio.Queue()
     
     # SSE lines simulating an LLM turn that outputs reasoning, content, and a tool call
@@ -55,10 +55,69 @@ async def test_streaming_buffers_content_in_tool_calling_turn():
     assert len(tcs) == 1
     assert tcs[0]["function"]["name"] == "update_plan"
     
-    # Verification: Both reasoning and intermediate content were sent as reasoning events
+    # Verification: Both reasoning and content events were emitted accurately
     event_types = [e[0] for e in events]
     assert "reasoning" in event_types
-    assert "content" not in event_types  # Crucial: content was NOT emitted in a tool-calling turn!
+    assert "content" in event_types
+    assert content == "Intermediate note before tool call."
+    assert reasoning == "Thinking about plan update..."
+
+
+@pytest.mark.asyncio
+async def test_extract_think_tags_streaming():
+    """Test that inline <think>...</think> tags in content stream are extracted to reasoning."""
+    stream_queue = asyncio.Queue()
+    
+    sse_lines = [
+        'data: {"choices": [{"delta": {"content": "<think>Analysing player situation...</think>Let us begin."}}]}',
+        'data: [DONE]'
+    ]
+    
+    mock_response = MockAsyncLineStream(sse_lines)
+    mock_response.status_code = 200
+
+    with patch("httpx.AsyncClient.stream", return_value=mock_response):
+        content, reasoning, tcs = await call_openrouter_streaming(
+            api_key="test-key",
+            base_url="https://openrouter.ai/api/v1",
+            model="test-model",
+            openai_messages=[],
+            stream_queue=stream_queue,
+        )
+
+    events = []
+    while not stream_queue.empty():
+        events.append(await stream_queue.get())
+
+    assert ("content", "Let us begin.") in events
+
+
+@pytest.mark.asyncio
+async def test_incremental_think_parser_various_tags():
+    """Test that IncrementalThinkParser parses <thought>, <thinking>, <reasoning> case-insensitively across chunk boundaries."""
+    from rachel.agent.openrouter import IncrementalThinkParser
+    stream_queue = asyncio.Queue()
+    parser = IncrementalThinkParser(stream_queue)
+    
+    await parser.feed("Some intro text. <THOUGHT>I should check player ")
+    await parser.feed("status first.</THOUGHT> ")
+    await parser.feed("<thinking>Now computing stats...</thinking>")
+    await parser.feed("Here is your output.")
+    await parser.flush()
+    
+    events = []
+    while not stream_queue.empty():
+        events.append(await stream_queue.get())
+        
+    reasoning_texts = [e[1] for e in events if e[0] == "reasoning"]
+    content_texts = [e[1] for e in events if e[0] == "content"]
+    
+    assert "I should check player " in reasoning_texts
+    assert "status first." in reasoning_texts
+    assert "Now computing stats..." in reasoning_texts
+    assert "Some intro text. " in content_texts
+    assert "Here is your output." in content_texts
+
 
 
 @pytest.mark.asyncio
