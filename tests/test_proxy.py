@@ -291,5 +291,40 @@ def test_dashboard_and_static_assets(client):
     assert "<script type=\"module\"" in resp.text or "/assets/" in resp.text
 
 
+@patch("rachel.routes.completions.run_agent", new_callable=AsyncMock)
+def test_temperature_passthrough(mock_run, client, auth_headers, tmp_path):
+    """Verify that temperature parameter is parsed, validated, and passed through correctly."""
+    mock_run.return_value = {
+        "content": "Hello player!",
+        "after_state": {"gold": 100},
+    }
+
+    with patch("rachel.routes.completions.STATE_STORAGE_DIR", tmp_path):
+        # 1. Valid temperature
+        payload = {
+            "messages": [{"role": "user", "content": "hi proxy"}],
+            "model": "google/gemini-flash-1.5",
+            "temperature": 0.7,
+        }
+        resp = client.post("/v1/chat/completions", json=payload, headers=auth_headers)
+        assert resp.status_code == 200
+        mock_run.assert_called_once()
+        args, kwargs = mock_run.call_args
+        assert kwargs["temperature"] == 0.7
+
+        # 2. Invalid temperature (string that cannot be converted to float)
+        mock_run.reset_mock()
+        payload = {
+            "messages": [{"role": "user", "content": "hi proxy"}],
+            "model": "google/gemini-flash-1.5",
+            "temperature": "invalid-temp",
+        }
+        resp = client.post("/v1/chat/completions", json=payload, headers=auth_headers)
+        assert resp.status_code == 400
+        assert "Invalid temperature parameter" in resp.json()["detail"]
+        mock_run.assert_not_called()
+
+
+
 
 

@@ -64,6 +64,7 @@ def _build_llm_node(
     max_iterations: int,
     sandbox_timeout: float,
     state_container: dict[str, Any],
+    temperature: float | None = None,
 ):
     """Return the LLM node callable."""
     async def llm_node(state: AgentState, config: RunnableConfig) -> dict:
@@ -140,6 +141,7 @@ def _build_llm_node(
             stream_queue=stream_queue,
             include_plan=bundle_plan_fired,
             include_summary=bundle_summary_fired,
+            temperature=temperature,
             **session_kwargs,
         )
 

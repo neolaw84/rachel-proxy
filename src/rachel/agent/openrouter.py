@@ -192,6 +192,7 @@ async def call_llm_streaming(
     stream_queue: asyncio.Queue | None,
     include_plan: bool = False,
     include_summary: bool = False,
+    temperature: float | None = None,
     session_id: str | None = None,
     prompt_cache_key: str | None = None,
     user: str | None = None,
@@ -213,6 +214,8 @@ async def call_llm_streaming(
         ),
         "stream": stream_queue is not None,
     }
+    if temperature is not None:
+        payload["temperature"] = temperature
     if session_id:
         headers["X-Session-Id"] = session_id
         payload["session_id"] = session_id

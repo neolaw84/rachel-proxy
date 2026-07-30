@@ -47,6 +47,7 @@ def build_graph(
     state_container: dict[str, Any],
     sandbox_timeout: float,
     max_iterations: int,
+    temperature: float | None = None,
 ):
     """Compile and return the LangGraph agent graph."""
     tools = make_tools(state_container, sandbox_timeout)
@@ -55,7 +56,7 @@ def build_graph(
     graph.add_node("summary", _build_summary_node(api_key, state_container, base_url=base_url))
     graph.add_node("plan", _build_plan_node(api_key, state_container, base_url=base_url))
     graph.add_node("cleanup", _build_cleanup_node(api_key, state_container, sandbox_timeout, base_url=base_url))
-    graph.add_node("llm", _build_llm_node(api_key, base_url, model, max_iterations, sandbox_timeout, state_container))
+    graph.add_node("llm", _build_llm_node(api_key, base_url, model, max_iterations, sandbox_timeout, state_container, temperature=temperature))
     graph.add_node("tools", _build_tool_node(tools))
 
     graph.set_conditional_entry_point(_route_start, {
@@ -88,6 +89,7 @@ async def run_agent(
     api_key: str,
     base_url: str,
     model: str,
+    temperature: float | None = None,
     sandbox_timeout: float = 2.0,
     max_iterations: int = 5,
     stream_queue: asyncio.Queue | None = None,
@@ -114,6 +116,7 @@ async def run_agent(
         state_container=state_container,
         sandbox_timeout=sandbox_timeout,
         max_iterations=max_iterations,
+        temperature=temperature,
     )
 
     initial_state: AgentState = {

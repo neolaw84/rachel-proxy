@@ -86,6 +86,7 @@ def _log_request(
     # ENG-11: Redact message content bodies to preserve data privacy in logs
     payload_summary = {
         "model": payload.get("model"),
+        "temperature": payload.get("temperature"),
         "message_count": len(payload.get("messages", [])) if isinstance(payload.get("messages"), list) else 0,
         "stream": payload.get("stream", False),
     }
@@ -235,6 +236,7 @@ async def _handle_streaming_completion(
     store: BaseSessionStorage,
     api_key: str,
     base_url: str,
+    temperature: float | None = None,
 ) -> StreamingResponse:
     """Run the agent asynchronously and return a streaming SSE response."""
     stream_queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
@@ -246,6 +248,7 @@ async def _handle_streaming_completion(
             api_key=api_key,
             base_url=base_url,
             model=model,
+            temperature=temperature,
             sandbox_timeout=SANDBOX_TIMEOUT,
             max_iterations=MAX_ITERATIONS,
             stream_queue=stream_queue,
@@ -278,6 +281,7 @@ async def _handle_non_streaming_completion(
     store: BaseSessionStorage,
     api_key: str,
     base_url: str,
+    temperature: float | None = None,
 ) -> JSONResponse:
     """Run the agent and return a standard JSON chat completion response."""
     try:
@@ -287,6 +291,7 @@ async def _handle_non_streaming_completion(
             api_key=api_key,
             base_url=base_url,
             model=model,
+            temperature=temperature,
             sandbox_timeout=SANDBOX_TIMEOUT,
             max_iterations=MAX_ITERATIONS,
             session_id=resolved_sid,
@@ -354,6 +359,13 @@ async def proxy_chat_completions(
     # Forward model verbatim if present in request; fallback to active provider default model if missing
     model: str = payload.get("model") or default_model
 
+    temperature: float | None = None
+    if "temperature" in payload:
+        try:
+            temperature = float(payload["temperature"])
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid temperature parameter: {exc}")
+
     # Resolve session and load state
     (
         resolved_sid,
@@ -388,6 +400,7 @@ async def proxy_chat_completions(
             store=store,
             api_key=api_key,
             base_url=base_url,
+            temperature=temperature,
         )
 
     return await _handle_non_streaming_completion(
@@ -400,4 +413,5 @@ async def proxy_chat_completions(
         store=store,
         api_key=api_key,
         base_url=base_url,
+        temperature=temperature,
     )
