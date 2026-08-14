@@ -19,14 +19,14 @@ Standard LLM completions APIs operate as stateless text predictors, creating fou
 
 RACHEL acts as a stateful proxy between the chat client and the LLM provider (like OpenRouter), intercepting requests to run a stateful LangGraph agent loop:
 
-1. **True Programmatic RNG & Dice Tools**: Intercepts dice requests and executes true Random Number Generators (RNG) behind the scenes (via `roll_xdy` tools). The LLM receives the real roll output and must narrate the outcome based on actual results.
-2. **Deterministic Code Sandbox Execution**: Runs an isolated **Code Sandbox** (supporting Python and V8 JavaScript engines). The LLM writes and executes computational scripts to update stats, calculate damage formulas, and manage inventory without mathematical errors.
+1. **True Programmatic RNG & Dice Helpers**: Exposes true Random Number Generator (RNG) helpers like `roll_xdy` and `contest` directly within the JavaScript sandbox context. The LLM invokes these inside the sandbox, captures the deterministic results, and narrates the outcome accordingly.
+2. **Deterministic Code Sandbox Execution**: Runs an isolated **Code Sandbox** (standardized entirely on the V8 JavaScript engine; Python sandbox execution is deprecated). The LLM writes and executes computational JS scripts to update stats, calculate damage formulas, and manage inventory without mathematical errors.
 3. **Multi-Dimensional Session State**: Maintains a structured 4-component state for every campaign:
    * **`state`**: Public character stats, health, gold, and inventory mutated by sandbox scripts.
    * **`plan`**: Checklist of narrative plot goals and NPC schedules keeping the story on track.
    * **`summary`**: Rolling narrative summary injected at intervals to preserve long-term memory across long chats.
    * **`hidden_state`**: Secret parameters (e.g., hidden traps, NPC trust levels) visible only to the LLM for organic storytelling.
-4. **Turn Key Tracking & Branching Isolation**: Every turn execution is assigned a **Turn Key** derived from the session ID and timestamp, embedded into assistant replies (`[proxy: session=... turn=...]`). When a user retries or swipes, RACHEL inspects the prior turn key to load the exact state before that turn occurred, isolating conversation branches.
+4. **Turn Key Tracking & Branching Isolation**: Every turn execution is assigned a **Turn Key** derived from the session ID and timestamp, embedded into assistant replies (`[proxy: session=... turn=... turn_number=...]`). When a user retries or swipes, RACHEL inspects the prior turn key to load the exact state before that turn occurred, isolating conversation branches.
 
 ---
 

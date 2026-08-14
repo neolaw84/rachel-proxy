@@ -36,6 +36,7 @@ The codebase is organized into modular concerns spanning backend python modules 
 * **[docs/project-layout-and-semantics.md](project-layout-and-semantics.md)**: Complete Directory Layout Tree & Component Semantics Map.
 * **[docs/why-rachel.md](why-rachel.md)**: Core features, benefits, assumptions, and design philosophies of RACHEL.
 * **[docs/all-about-sessions.md](all-about-sessions.md)**: Detailed guide on session ID resolution hierarchy, turn key state tracking, and session CRUD API endpoints.
+* **[docs/all-about-turns-and-messages.md](all-about-turns-and-messages.md)**: Detailed guide explaining message types (incoming/outgoing), user-merged directives, turn number resolution, and turn key vs turn number distinction.
 * **[docs/all-about-auth.md](all-about-auth.md)**: Comprehensive guide detailing the three authentication & authorization boundaries (Chat Client, Admin Panel/SSO, LLM Providers/PKCE/BYOK).
 * **[docs/configurations.md](configurations.md)**: Detailed settings reference for `configs.yaml` (state limits, sandbox timeout, LangGraph iterations, and narrative triggers).
 * **[docs/road-to-multi-tenant.md](road-to-multi-tenant.md)**: Architectural roadmap, design decisions, and implementation plan for multi-tenant cloud deployment (GCP Cloud Run + Neon PostgreSQL).
@@ -107,7 +108,7 @@ PYTHONPATH=src uvicorn rachel.proxy:app --host 0.0.0.0 --port 8000 --reload
 Resolved per-request using a four-level hierarchy (highest → lowest priority):
 1. **Explicit** — URL path `/v1/{session_id}/chat/completions` or query param `?session_id=`.
 2. **OOC tag** — `[session: name]` inside any message, scanned newest-first.
-3. **Proxy annotation** — scanned newest-first from assistant messages looking for `[proxy: session=xxx ...]`.
+3. **Proxy annotation** — scanned newest-first from assistant messages looking for `[proxy: session=xxx turn=yyy turn_number=zzz ...]`.
 4. **First assistant suffix hash + username hash** — concatenation of the MD5 hash of the first assistant message's suffix (300 characters without spaces) and the MD5 hash of the username extracted from the last user message.
 
 ### Turn Key
@@ -117,7 +118,7 @@ turn_key = SHA-256[:24](session_id + "\0" + epoch_in_millis)
 ```
 The turn key is injected into the **message text** of every response, prepended as a plain-text annotation:
 ```
-[proxy: session=<session_id> turn=<turn_key>]
+[proxy: session=<session_id> turn=<turn_key> turn_number=<turn_number>]
 
 <actual assistant response>
 ```

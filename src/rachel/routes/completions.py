@@ -29,6 +29,8 @@ from rachel.core.session import (
     extract_prev_turn_key,
     resolve_session_id,
     strip_proxy_annotations,
+    resolve_turn_numbers,
+    get_session_caching_info,
 )
 from rachel.core.state import BaseSessionStorage, get_session_storage
 from rachel.core.settings_storage import get_settings_storage
@@ -139,10 +141,12 @@ async def _stream_generator(
     cache_miss: bool,
     store: BaseSessionStorage,
     before_state: dict[str, Any],
+    turn_number: int,
+    meta_data: dict[str, Any],
 ):
     """Consume the agent stream queue and yield SSE-formatted bytes."""
     # 1. Proxy annotation (first chunk)
-    annotation = f"[proxy: session={resolved_sid} turn={turn_key}]\n\n"
+    annotation = f"[proxy: session={resolved_sid} turn={turn_key} turn_number={turn_number}]\n\n"
     yield _make_sse_chunk(turn_key, model, {"role": "assistant", "content": annotation})
 
     # 2. Drain queue
@@ -172,7 +176,10 @@ async def _stream_generator(
     try:
         result = await agent_task
         after_state = result["after_state"]
-        store.save_turn(turn_key, before_state, after_state)
+        meta_data["last_plan_turn"] = result.get("last_plan_turn", 0)
+        meta_data["last_summary_turn"] = result.get("last_summary_turn", 0)
+        meta_data["last_cleanup_turn"] = result.get("last_cleanup_turn", 0)
+        store.save_turn(turn_key, before_state, after_state, meta_data)
         # Yield final finish_reason="stop" signal
         yield _make_sse_chunk(turn_key, model, {}, finish_reason="stop")
     except Exception as exc:
@@ -237,6 +244,9 @@ async def _handle_streaming_completion(
     api_key: str,
     base_url: str,
     temperature: float | None = None,
+    turn_number: int = 1,
+    turn_numbers: list[int | None] | None = None,
+    meta_data: dict[str, Any] | None = None,
 ) -> StreamingResponse:
     """Run the agent asynchronously and return a streaming SSE response."""
     stream_queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
@@ -253,6 +263,11 @@ async def _handle_streaming_completion(
             max_iterations=MAX_ITERATIONS,
             stream_queue=stream_queue,
             session_id=resolved_sid,
+            turn_number=turn_number,
+            turn_numbers=turn_numbers,
+            last_plan_turn=meta_data.get("last_plan_turn", 0) if meta_data else 0,
+            last_summary_turn=meta_data.get("last_summary_turn", 0) if meta_data else 0,
+            last_cleanup_turn=meta_data.get("last_cleanup_turn", 0) if meta_data else 0,
         )
     )
 
@@ -266,6 +281,8 @@ async def _handle_streaming_completion(
             cache_miss=cache_miss,
             store=store,
             before_state=before_state,
+            turn_number=turn_number,
+            meta_data=meta_data or {},
         ),
         media_type="text/event-stream",
     )
@@ -282,6 +299,9 @@ async def _handle_non_streaming_completion(
     api_key: str,
     base_url: str,
     temperature: float | None = None,
+    turn_number: int = 1,
+    turn_numbers: list[int | None] | None = None,
+    meta_data: dict[str, Any] | None = None,
 ) -> JSONResponse:
     """Run the agent and return a standard JSON chat completion response."""
     try:
@@ -295,6 +315,11 @@ async def _handle_non_streaming_completion(
             sandbox_timeout=SANDBOX_TIMEOUT,
             max_iterations=MAX_ITERATIONS,
             session_id=resolved_sid,
+            turn_number=turn_number,
+            turn_numbers=turn_numbers,
+            last_plan_turn=meta_data.get("last_plan_turn", 0) if meta_data else 0,
+            last_summary_turn=meta_data.get("last_summary_turn", 0) if meta_data else 0,
+            last_cleanup_turn=meta_data.get("last_cleanup_turn", 0) if meta_data else 0,
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Agent execution failed: {exc}") from exc
@@ -309,9 +334,13 @@ async def _handle_non_streaming_completion(
         final_content += ooc_text
     final_reasoning = result.get("reasoning_content") or ""
 
-    store.save_turn(turn_key, before_state, after_state)
+    if meta_data:
+        meta_data["last_plan_turn"] = result.get("last_plan_turn", 0)
+        meta_data["last_summary_turn"] = result.get("last_summary_turn", 0)
+        meta_data["last_cleanup_turn"] = result.get("last_cleanup_turn", 0)
+    store.save_turn(turn_key, before_state, after_state, meta_data or {})
 
-    annotation = f"[proxy: session={resolved_sid} turn={turn_key}]\n\n"
+    annotation = f"[proxy: session={resolved_sid} turn={turn_key} turn_number={turn_number}]\n\n"
     full_content = annotation + final_content
 
     resp_payload: dict[str, Any] = {
@@ -382,6 +411,29 @@ async def proxy_chat_completions(
         storage_dir=STATE_STORAGE_DIR,
     )
 
+    # Resolve turn numbers before stripping proxy annotations
+    turn_nums = resolve_turn_numbers(messages, store)
+    resolved_turn_number = turn_nums[-1] if turn_nums else 1
+
+    prev_meta = store.get_turn_metadata(prev_turn_key) if prev_turn_key else None
+    if prev_meta is None:
+        prev_meta = {}
+
+    last_plan_turn = prev_meta.get("last_plan_turn", 0)
+    last_summary_turn = prev_meta.get("last_summary_turn", 0)
+    last_cleanup_turn = prev_meta.get("last_cleanup_turn", 0)
+
+    caching_info = get_session_caching_info(resolved_sid)
+    meta_data = {
+        "session_id": resolved_sid,
+        "prompt_cache_key": caching_info["prompt_cache_key"],
+        "user": caching_info["user"],
+        "turn_number": resolved_turn_number,
+        "last_plan_turn": last_plan_turn,
+        "last_summary_turn": last_summary_turn,
+        "last_cleanup_turn": last_cleanup_turn,
+    }
+
     _log_request(request, payload, resolved_sid, sid_method, turn_key, prev_turn_key)
 
     # Strip [proxy: ...] annotations from messages before hitting the LLM.
@@ -401,6 +453,9 @@ async def proxy_chat_completions(
             api_key=api_key,
             base_url=base_url,
             temperature=temperature,
+            turn_number=resolved_turn_number,
+            turn_numbers=turn_nums,
+            meta_data=meta_data,
         )
 
     return await _handle_non_streaming_completion(
@@ -414,4 +469,7 @@ async def proxy_chat_completions(
         api_key=api_key,
         base_url=base_url,
         temperature=temperature,
+        turn_number=resolved_turn_number,
+        turn_numbers=turn_nums,
+        meta_data=meta_data,
     )

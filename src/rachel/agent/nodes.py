@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from typing import Annotated, Any, Sequence, TypedDict
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
@@ -20,6 +21,16 @@ from rachel.sandbox.sandbox import get_sandbox_engine
 
 logger = logging.getLogger(__name__)
 
+
+def _strip_fenced_code_block(text: str) -> str:
+    """Strip starting/ending markdown fenced delimiters including optional language tags."""
+    text = text.strip()
+    import re
+    # Remove leading ```[optional-lang]
+    text = re.sub(r"^```[a-zA-Z-]*\s*", "", text)
+    # Remove trailing ```
+    text = re.sub(r"\s*```$", "", text)
+    return text.strip()
 
 class _GraphDelegate:
     """Helper class to delegate calls to graph.py to maintain test patch compatibility."""
@@ -129,8 +140,26 @@ def _build_llm_node(
             turn_number=turn_number,
         )
 
-        openai_msgs = convert_to_openai_messages(state["messages"])
-        openai_msgs.append({"role": "system", "content": system_instruction})
+        openai_msgs = convert_to_openai_messages(
+            state["messages"],
+            turn_numbers=state_container.get("turn_numbers"),
+        )
+        
+        found_user = False
+        for msg in reversed(openai_msgs):
+            if msg.get("role") == "user":
+                orig_content = msg.get("content") or ""
+                instruction_block = (
+                    f"\n\n---\n"
+                    f"[RPG DIRECTIVE & GAME STATE (Turn {turn_number})]\n"
+                    f"{system_instruction}"
+                )
+                msg["content"] = orig_content + instruction_block
+                found_user = True
+                break
+                
+        if not found_user:
+            openai_msgs.append({"role": "system", "content": system_instruction})
 
         # 2. Call OpenRouter
         content, reasoning, tcs = await _GraphDelegate.call_openrouter_streaming(
@@ -144,6 +173,14 @@ def _build_llm_node(
             temperature=temperature,
             **session_kwargs,
         )
+
+        # Strip accidental Turn X prefix from the generated content
+        if content:
+            pattern = re.compile(
+                r"^\s*(?:\[proxy:[^\]]*\]\s*)*(?:(?:\*\*|###|#|\(|\[)?\s*Turn\s*\d+\s*[:\-\)]?\s*(?:\*\*|\]|\))?\s*)*",
+                re.IGNORECASE
+            )
+            content = pattern.sub("", content).strip()
 
         # Convert tool calls to LangChain format
         lc_tool_calls = []
@@ -187,8 +224,7 @@ def _build_summary_node(api_key: str, state_container: dict[str, Any], base_url:
 
         rpg = state_container["rpg_state"]
         current_turn = sum(1 for m in state["messages"] if isinstance(m, AIMessage)) + 1
-        hidden = rpg.get("hidden_state", {}) or {}
-        last_summary_turn = hidden.get("last_summary_turn", 0)
+        last_summary_turn = state_container.get("last_summary_turn", 0)
 
         session_id = config.get("configurable", {}).get("session_id") or state_container.get("session_id")
         session_kwargs = {}
@@ -236,10 +272,7 @@ def _build_summary_node(api_key: str, state_container: dict[str, Any], base_url:
             else:
                 rpg["summary"] = summary_delta
 
-            # Record last summary turn
-            if "hidden_state" not in rpg or not isinstance(rpg["hidden_state"], dict):
-                rpg["hidden_state"] = {}
-            rpg["hidden_state"]["last_summary_turn"] = current_turn
+            state_container["last_summary_turn"] = current_turn
 
             logger.info("Graph Summary node update complete: %s", summary_delta)
         except Exception as exc:
@@ -255,12 +288,12 @@ def _build_plan_node(api_key: str, state_container: dict[str, Any], base_url: st
             PLAN_MODEL,
             PLAN_BASE_URL,
             PLAN_TEMPERATURE,
+            PLAN_MAX_RETRIES,
         )
 
         rpg = state_container["rpg_state"]
         current_turn = sum(1 for m in state["messages"] if isinstance(m, AIMessage)) + 1
-        hidden = rpg.get("hidden_state", {}) or {}
-        last_plan_turn = hidden.get("last_plan_turn", 0)
+        last_plan_turn = state_container.get("last_plan_turn", 0)
 
         session_id = config.get("configurable", {}).get("session_id") or state_container.get("session_id")
         session_kwargs = {}
@@ -290,51 +323,72 @@ def _build_plan_node(api_key: str, state_container: dict[str, Any], base_url: st
         history_msgs = convert_to_openai_messages(middled_msgs)
         history_msgs.append({"role": "system", "content": plan_prompt})
 
-        try:
-            plan_response = await _GraphDelegate.call_openrouter_direct(
-                api_key=api_key,
-                base_url=base_url or PLAN_BASE_URL,
-                model=PLAN_MODEL,
-                openai_messages=history_msgs,
-                temperature=PLAN_TEMPERATURE,
-                **session_kwargs,
-            )
-            clean_resp = plan_response.strip()
-            if clean_resp.startswith("```"):
-                clean_resp = clean_resp.split("\n", 1)[-1]
-                if clean_resp.endswith("```"):
-                    clean_resp = clean_resp.rsplit("```", 1)[0]
-                clean_resp = clean_resp.strip()
-            new_plan = json.loads(clean_resp)
-            if isinstance(new_plan, list):
+        errors = []
+        plan_updated = False
+        max_retries = max(1, PLAN_MAX_RETRIES)
+        for attempt in range(max_retries):
+            current_msgs = list(history_msgs)
+            if errors:
+                error_context = "\n".join(errors)
+                current_msgs.append({
+                    "role": "system",
+                    "content": f"The previous attempt failed with the following error(s):\n{error_context}\n\nPlease try again and output ONLY a valid JSON array matching the requested schema."
+                })
+
+            try:
+                plan_response = await _GraphDelegate.call_openrouter_direct(
+                    api_key=api_key,
+                    base_url=base_url or PLAN_BASE_URL,
+                    model=PLAN_MODEL,
+                    openai_messages=current_msgs,
+                    temperature=PLAN_TEMPERATURE,
+                    **session_kwargs,
+                )
+                clean_resp = _strip_fenced_code_block(plan_response)
+
+                new_plan = json.loads(clean_resp)
+                if not isinstance(new_plan, list):
+                    raise ValueError("Output must be a JSON array of objects.")
+
                 normalized = []
                 for idx, item in enumerate(new_plan, 1):
                     if isinstance(item, dict):
-                        normalized.append({
-                            "id": item.get("id", idx),
-                            "description": item.get("description", ""),
-                            "status": item.get("status", "to-do"),
-                            "remark": item.get("remark", ""),
-                        })
+                        desc = item.get("description") or ""
+                        remark = item.get("remark") or ""
+                        item_id = item.get("id", idx)
+                        status = item.get("status", "to-do")
                     else:
-                        normalized.append({
-                            "id": idx,
-                            "description": str(item),
-                            "status": "to-do",
-                            "remark": "",
-                        })
+                        desc = str(item)
+                        remark = ""
+                        item_id = idx
+                        status = "to-do"
+
+                    if len(desc) > 500:
+                        raise ValueError(f"Plan item description at index {idx} exceeds 500 characters limit ({len(desc)} characters).")
+                    if len(remark) > 500:
+                        raise ValueError(f"Plan item remark at index {idx} exceeds 500 characters limit ({len(remark)} characters).")
+
+                    normalized.append({
+                        "id": item_id,
+                        "description": desc,
+                        "status": status,
+                        "remark": remark,
+                    })
+
                 rpg["plan"] = normalized
 
-                # Record last plan turn
-                if "hidden_state" not in rpg or not isinstance(rpg["hidden_state"], dict):
-                    rpg["hidden_state"] = {}
-                rpg["hidden_state"]["last_plan_turn"] = current_turn
+                state_container["last_plan_turn"] = current_turn
 
                 logger.info("Graph Plan node update complete: %s", rpg["plan"])
-            else:
-                logger.warning("Graph plan node update did not return a list: %s", clean_resp)
-        except Exception as exc:
-            logger.error("Failed to run plan node update: %s", exc)
+                plan_updated = True
+                break
+            except Exception as exc:
+                err_msg = f"Attempt {attempt + 1} failed: {str(exc)}"
+                logger.warning("Plan update retry loop warning: %s", err_msg)
+                errors.append(err_msg)
+
+        if not plan_updated:
+            logger.error("Failed to run plan node update after %d attempts. Errors: %s", max_retries, errors)
 
         return {"rpg_state": rpg}
     return plan_node
@@ -342,12 +396,18 @@ def _build_plan_node(api_key: str, state_container: dict[str, Any], base_url: st
 def _build_cleanup_node(api_key: str, state_container: dict[str, Any], sandbox_timeout: float, base_url: str | None = None):
     """Return the Cleanup node callable."""
     async def cleanup_node(state: AgentState, config: RunnableConfig) -> dict:
+        import copy
         from rachel.config import (
             CLEANUP_MODEL,
             CLEANUP_BASE_URL,
             CLEANUP_TEMPERATURE,
+            CLEANUP_MAX_RETRIES,
+            MAX_DEPTH,
+            MAX_WIDTH,
+            MAX_STRING_LENGTH,
         )
         from rachel.agent.prompts import get_cleanup_prompt
+        from rachel.sandbox.validation import validate_state_constraints
 
         engine = get_sandbox_engine()
         rpg = state_container["rpg_state"]
@@ -364,55 +424,88 @@ def _build_cleanup_node(api_key: str, state_container: dict[str, Any], sandbox_t
                 "user": caching_info["user"],
             }
 
-        cleanup_prompt = get_cleanup_prompt(
-            state=rpg.get("state", {}),
-            hidden_state=rpg.get("hidden_state", {}),
-            engine_name=engine.name,
-            is_bundle=False,
-        )
+        orig_state = copy.deepcopy(rpg.get("state", {})) if isinstance(rpg, dict) else {}
+        orig_hidden = copy.deepcopy(rpg.get("hidden_state", {})) if isinstance(rpg, dict) else {}
 
-        history_msgs = [{"role": "system", "content": cleanup_prompt}]
-
-        try:
-            code_response = await _GraphDelegate.call_openrouter_direct(
-                api_key=api_key,
-                base_url=base_url or CLEANUP_BASE_URL,
-                model=CLEANUP_MODEL,
-                openai_messages=history_msgs,
-                temperature=CLEANUP_TEMPERATURE,
-                **session_kwargs,
+        errors = []
+        cleanup_updated = False
+        max_retries = max(1, CLEANUP_MAX_RETRIES)
+        for attempt in range(max_retries):
+            # Recalculate prompt incorporating errors if any
+            cleanup_prompt = get_cleanup_prompt(
+                state=orig_state,
+                hidden_state=orig_hidden,
+                engine_name=engine.name,
+                is_bundle=False,
             )
-            code = code_response.strip()
-            if code.startswith("```"):
-                code = code.split("\n", 1)[-1]
-                if code.endswith("```"):
-                    code = code.rsplit("```", 1)[0]
-                code = code.strip()
+            if errors:
+                error_context = "\n".join(errors)
+                cleanup_prompt += (
+                    f"\n\n[ERROR FROM PREVIOUS CODE RUN]:\n{error_context}\n\n"
+                    f"Please correct your {engine.name.upper()} script and try again."
+                )
 
-            # Execute sandbox code
-            if isinstance(rpg, dict) and all(k in rpg for k in ("state", "plan", "summary", "hidden_state")):
-                wrapper = {
-                    "state": rpg.get("state", {}),
-                    "hidden_state": rpg.get("hidden_state", {}),
-                }
-                updated, output = engine.execute(code, wrapper, sandbox_timeout)
-                if isinstance(updated, dict) and "state" in updated and "hidden_state" in updated:
+            history_msgs = [{"role": "system", "content": cleanup_prompt}]
+
+            try:
+                code_response = await _GraphDelegate.call_openrouter_direct(
+                    api_key=api_key,
+                    base_url=base_url or CLEANUP_BASE_URL,
+                    model=CLEANUP_MODEL,
+                    openai_messages=history_msgs,
+                    temperature=CLEANUP_TEMPERATURE,
+                    **session_kwargs,
+                )
+                code = _strip_fenced_code_block(code_response)
+
+                # Execute sandbox code
+                if isinstance(rpg, dict) and all(k in rpg for k in ("state", "plan", "summary", "hidden_state")):
+                    wrapper = {
+                        "state": copy.deepcopy(orig_state),
+                        "hidden_state": copy.deepcopy(orig_hidden),
+                    }
+                    updated, output = engine.execute(code, wrapper, sandbox_timeout)
+                    if output and "--- Sandbox Exception ---" in output:
+                        raise ValueError(f"Cleanup script execution failed:\n{output}")
+                    if output and "[Sandbox timed out" in output:
+                        raise ValueError("Cleanup script execution timed out.")
+
+                    if not isinstance(updated, dict) or "state" not in updated or "hidden_state" not in updated:
+                        raise ValueError("Cleanup script execution did not return a dictionary object with both 'state' and 'hidden_state' keys.")
+
+                    # Validate state constraints on mutated objects
+                    validate_state_constraints(updated["state"], MAX_DEPTH, MAX_WIDTH, MAX_STRING_LENGTH, "state")
+                    validate_state_constraints(updated["hidden_state"], MAX_DEPTH, MAX_WIDTH, MAX_STRING_LENGTH, "hidden_state")
+
                     rpg["state"] = updated["state"]
                     rpg["hidden_state"] = updated["hidden_state"]
                 else:
-                    rpg["state"] = updated
-            else:
-                updated, output = engine.execute(code, rpg, sandbox_timeout)
-                state_container["rpg_state"] = updated
+                    orig_rpg = copy.deepcopy(rpg)
+                    updated, output = engine.execute(code, orig_rpg, sandbox_timeout)
+                    if output and "--- Sandbox Exception ---" in output:
+                        raise ValueError(f"Cleanup script execution failed:\n{output}")
+                    if output and "[Sandbox timed out" in output:
+                        raise ValueError("Cleanup script execution timed out.")
 
-            # Record last cleanup turn
-            if "hidden_state" not in rpg or not isinstance(rpg["hidden_state"], dict):
-                rpg["hidden_state"] = {}
-            rpg["hidden_state"]["last_cleanup_turn"] = current_turn
+                    validate_state_constraints(updated, MAX_DEPTH, MAX_WIDTH, MAX_STRING_LENGTH, "state")
+                    state_container["rpg_state"] = updated
 
-            logger.info("Graph Cleanup node execution complete. Sandbox Output: %s", output or "<none>")
-        except Exception as exc:
-            logger.error("Failed to run cleanup node: %s", exc)
+                state_container["last_cleanup_turn"] = current_turn
+
+                logger.info("Graph Cleanup node execution complete. Sandbox Output: %s", output or "<none>")
+                cleanup_updated = True
+                break
+            except Exception as exc:
+                err_msg = f"Attempt {attempt + 1} failed: {str(exc)}"
+                logger.warning("Cleanup retry loop warning: %s", err_msg)
+                errors.append(err_msg)
+
+        if not cleanup_updated:
+            logger.error("Failed to run cleanup node after %d attempts. Errors: %s", max_retries, errors)
+            # Revert states to originals in case we modified the containers partially
+            if isinstance(rpg, dict) and "state" in rpg and "hidden_state" in rpg:
+                rpg["state"] = orig_state
+                rpg["hidden_state"] = orig_hidden
 
         return {"rpg_state": rpg}
     return cleanup_node
@@ -483,41 +576,40 @@ def _should_continue(max_iterations: int):
         over_limit = state["iteration_count"] >= max_iterations
         if has_tool_calls and not over_limit:
             return "tools"
-        return END
+        return "route_end"
     return _edge
 
-def _route_start(state: AgentState, config: RunnableConfig) -> str:
-    summary_fired = config.get("configurable", {}).get("summary_fired", False)
-    summary_bundle = config.get("configurable", {}).get("summary_bundle", True)
-    if summary_fired and not summary_bundle:
-        return "summary"
-    plan_fired = config.get("configurable", {}).get("plan_fired", False)
-    plan_bundle = config.get("configurable", {}).get("plan_bundle", True)
-    if plan_fired and not plan_bundle:
-        return "plan"
-    cleanup_fired = config.get("configurable", {}).get("cleanup_fired", False)
-    cleanup_bundle = config.get("configurable", {}).get("cleanup_bundle", True)
-    if cleanup_fired and not cleanup_bundle:
-        return "cleanup"
-    return "llm"
 
-def _route_summary_next(state: AgentState, config: RunnableConfig) -> str:
-    plan_fired = config.get("configurable", {}).get("plan_fired", False)
-    plan_bundle = config.get("configurable", {}).get("plan_bundle", True)
-    if plan_fired and not plan_bundle:
-        return "plan"
-    cleanup_fired = config.get("configurable", {}).get("cleanup_fired", False)
-    cleanup_bundle = config.get("configurable", {}).get("cleanup_bundle", True)
-    if cleanup_fired and not cleanup_bundle:
-        return "cleanup"
-    return "llm"
+def _build_pre_action_node(api_key: str, state_container: dict[str, Any], sandbox_timeout: float, base_url: str | None = None):
+    """Return a node that executes Plan, Summary, and Cleanup concurrently if triggered."""
+    summary_fn = _build_summary_node(api_key, state_container, base_url=base_url)
+    plan_fn = _build_plan_node(api_key, state_container, base_url=base_url)
+    cleanup_fn = _build_cleanup_node(api_key, state_container, sandbox_timeout, base_url=base_url)
 
-def _route_plan_next(state: AgentState, config: RunnableConfig) -> str:
-    cleanup_fired = config.get("configurable", {}).get("cleanup_fired", False)
-    cleanup_bundle = config.get("configurable", {}).get("cleanup_bundle", True)
-    if cleanup_fired and not cleanup_bundle:
-        return "cleanup"
-    return "llm"
+    async def pre_action_node(state: AgentState, config: RunnableConfig) -> dict:
+        import asyncio
+        tasks = []
+        conf = config.get("configurable", {})
+        if conf.get("plan_fired", False):
+            tasks.append(plan_fn(state, config))
+        if conf.get("summary_fired", False):
+            tasks.append(summary_fn(state, config))
+        if conf.get("cleanup_fired", False):
+            tasks.append(cleanup_fn(state, config))
+
+        if tasks:
+            await asyncio.gather(*tasks)
+
+        return {"rpg_state": state_container["rpg_state"]}
+    return pre_action_node
+
+
+def _build_route_end_node():
+    """Return the final housekeeping node callable."""
+    async def route_end_node(state: AgentState, config: RunnableConfig) -> dict:
+        logger.info("Housekeeping end node reached.")
+        return {"rpg_state": state.get("rpg_state", {})}
+    return route_end_node
 
 def _convert_messages(openai_messages: list[dict]) -> list[BaseMessage]:
     """Convert OpenAI-format message dicts to LangChain BaseMessage objects."""

@@ -9,22 +9,18 @@ import asyncio
 from typing import Annotated, Any, Sequence, TypedDict
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.runnables import RunnableConfig
-from langgraph.graph import StateGraph
+from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 
 # Expose node builders and helpers from nodes
 from rachel.agent.nodes import (
     AgentState,
     _build_llm_node,
-    _build_summary_node,
-    _build_plan_node,
-    _build_cleanup_node,
     _build_tool_node,
     _should_continue,
-    _route_start,
-    _route_summary_next,
-    _route_plan_next,
     _convert_messages,
+    _build_pre_action_node,
+    _build_route_end_node,
 )
 
 # Exported/delegated for test mock compatibility
@@ -53,33 +49,19 @@ def build_graph(
     tools = make_tools(state_container, sandbox_timeout)
 
     graph = StateGraph(AgentState)  # type: ignore[arg-type]
-    graph.add_node("summary", _build_summary_node(api_key, state_container, base_url=base_url))
-    graph.add_node("plan", _build_plan_node(api_key, state_container, base_url=base_url))
-    graph.add_node("cleanup", _build_cleanup_node(api_key, state_container, sandbox_timeout, base_url=base_url))
+    graph.add_node("pre_action", _build_pre_action_node(api_key, state_container, sandbox_timeout, base_url=base_url))
     graph.add_node("llm", _build_llm_node(api_key, base_url, model, max_iterations, sandbox_timeout, state_container, temperature=temperature))
     graph.add_node("tools", _build_tool_node(tools))
+    graph.add_node("route_end", _build_route_end_node())
 
-    graph.set_conditional_entry_point(_route_start, {
-        "summary": "summary",
-        "plan": "plan",
-        "cleanup": "cleanup",
-        "llm": "llm",
+    graph.set_entry_point("pre_action")
+    graph.add_edge("pre_action", "llm")
+    graph.add_conditional_edges("llm", _should_continue(max_iterations), {
+        "tools": "tools",
+        "route_end": "route_end",
     })
-
-    graph.add_conditional_edges("summary", _route_summary_next, {
-        "plan": "plan",
-        "cleanup": "cleanup",
-        "llm": "llm",
-    })
-
-    graph.add_conditional_edges("plan", _route_plan_next, {
-        "cleanup": "cleanup",
-        "llm": "llm",
-    })
-
-    graph.add_edge("cleanup", "llm")
-    graph.add_conditional_edges("llm", _should_continue(max_iterations))
     graph.add_edge("tools", "llm")
+    graph.add_edge("route_end", END)
 
     return graph.compile()
 
@@ -94,12 +76,22 @@ async def run_agent(
     max_iterations: int = 5,
     stream_queue: asyncio.Queue | None = None,
     session_id: str | None = None,
+    turn_number: int | None = None,
+    turn_numbers: list[int | None] | None = None,
+    last_plan_turn: int = 0,
+    last_summary_turn: int = 0,
+    last_cleanup_turn: int = 0,
 ) -> dict[str, Any]:
     """Run the LangGraph agent for one proxy turn."""
-    turn_number = sum(1 for m in messages if m.get("role") == "assistant") + 1
+    if turn_number is None:
+        turn_number = sum(1 for m in messages if m.get("role") == "assistant") + 1
     state_container: dict[str, Any] = {
         "rpg_state": dict(before_state),
         "current_turn": turn_number,
+        "turn_numbers": turn_numbers,
+        "last_plan_turn": last_plan_turn,
+        "last_summary_turn": last_summary_turn,
+        "last_cleanup_turn": last_cleanup_turn,
     }
     if session_id:
         state_container["session_id"] = session_id
@@ -232,4 +224,7 @@ async def run_agent(
         "content": final_content,
         "reasoning_content": final_reasoning,
         "after_state": state_container["rpg_state"],
+        "last_plan_turn": state_container.get("last_plan_turn", 0),
+        "last_summary_turn": state_container.get("last_summary_turn", 0),
+        "last_cleanup_turn": state_container.get("last_cleanup_turn", 0),
     }

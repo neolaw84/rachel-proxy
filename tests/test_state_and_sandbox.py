@@ -5,20 +5,20 @@ from pathlib import Path
 
 import pytest
 
-from rachel.core.state import SessionStateStore
+from rachel.core.state import get_session_storage, list_all_sessions
 from rachel.sandbox.sandbox import execute_sandbox
 
 
 # ---------------------------------------------------------------------------
-# SessionStateStore tests
+# Session Storage Backend tests
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
 def tmp_store(tmp_path):
-    return SessionStateStore(
+    return get_session_storage(
         session_id="test-session",
-        storage_dir=tmp_path,
         max_size=3,
+        storage_dir=tmp_path,
     )
 
 
@@ -32,10 +32,10 @@ def test_first_turn_returns_empty_state(tmp_store):
 
 
 def test_save_and_reload(tmp_path):
-    store = SessionStateStore("s1", tmp_path, max_size=8)
+    store = get_session_storage("s1", max_size=8, storage_dir=tmp_path)
     store.save_turn("key1", {"hp": 100}, {"hp": 90})
 
-    store2 = SessionStateStore("s1", tmp_path, max_size=8)
+    store2 = get_session_storage("s1", max_size=8, storage_dir=tmp_path)
     assert store2.get_before_state("key1") == {
         "state": {"hp": 90},
         "plan": [],
@@ -50,7 +50,7 @@ def test_missing_key_raises(tmp_store):
 
 
 def test_lru_eviction(tmp_path):
-    store = SessionStateStore("s1", tmp_path, max_size=3)
+    store = get_session_storage("s1", max_size=3, storage_dir=tmp_path)
     store.save_turn("k1", {}, {"a": 1})
     store.save_turn("k2", {}, {"a": 2})
     store.save_turn("k3", {}, {"a": 3})
@@ -86,10 +86,10 @@ def test_lru_eviction(tmp_path):
 
 
 def test_reset_clears_state(tmp_path):
-    store = SessionStateStore("s1", tmp_path, max_size=8)
+    store = get_session_storage("s1", max_size=8, storage_dir=tmp_path)
     store.save_turn("k1", {}, {"x": 1})
     store.reset()
-    store2 = SessionStateStore("s1", tmp_path, max_size=8)
+    store2 = get_session_storage("s1", max_size=8, storage_dir=tmp_path)
     assert store2.get_before_state(None) == {
         "state": {},
         "plan": [],
@@ -99,7 +99,7 @@ def test_reset_clears_state(tmp_path):
 
 
 def test_delete_removes_file(tmp_path):
-    store = SessionStateStore("s1", tmp_path, max_size=8)
+    store = get_session_storage("s1", max_size=8, storage_dir=tmp_path)
     store.save_turn("k1", {}, {"x": 1})
     store.delete()
     assert not (tmp_path / "s1.json").exists()
@@ -107,9 +107,9 @@ def test_delete_removes_file(tmp_path):
 
 def test_list_sessions(tmp_path):
     for sid in ["alpha", "beta", "gamma"]:
-        s = SessionStateStore(sid, tmp_path, max_size=8)
+        s = get_session_storage(sid, max_size=8, storage_dir=tmp_path)
         s.save_turn("k1", {}, {})
-    sessions = SessionStateStore.list_sessions(tmp_path)
+    sessions = list_all_sessions(tmp_path)
     assert sorted(sessions) == ["alpha", "beta", "gamma"]
 
 
@@ -345,27 +345,21 @@ def test_resolve_session_id_4_levels():
     assert resolve_session_id(messages_no_asst) == (u_hash, "assistant-suffix-hash+username-hash")
 
 
-def test_roll_xdy_python_tool():
-    from rachel.agent.tools import make_tools, get_dice_interpretation
-    
-    interp = get_dice_interpretation(4, {4: "crit fail", 8: "fail", 16: "success", 18: "crit success"})
-    assert interp == "crit fail"
-    interp_8 = get_dice_interpretation(5, {4: "crit fail", 8: "fail", 16: "success", 18: "crit success"})
-    assert interp_8 == "fail"
-
-    state_container = {"rpg_state": {}}
-    tools = {t.name: t for t in make_tools(state_container, 2.0)}
-    assert "random_int" not in tools
-    
-    res = tools["roll_xdy"].invoke({
-        "num_dice": 3,
-        "num_sides": 6,
-        "interpretation": {4: "crit fail", 8: "fail", 16: "success", 18: "crit success"}
-    })
-    assert isinstance(res, dict)
-    assert len(res["rolls"]) == 3
-    assert res["total"] == sum(res["rolls"])
-    assert res["interpretation"].startswith("interpretation of the dice roll is '")
+def test_contest_in_v8_sandbox():
+    from rachel.sandbox.v8_engine import V8SandboxEngine
+    engine = V8SandboxEngine()
+    code_diff_dice = """
+    var res = contest({num: 3, sides: 6}, {num: 4, sides: 5}, {"strength": 2}, {"dexterity": 1}, {"-10": "Total Defeat", "0": "Failure", "10": "Success", "20": "Total Victory"});
+    state.res = res;
+    """
+    updated_state, output = engine.execute(code_diff_dice, {}, 2.0)
+    assert "res" in updated_state
+    res = updated_state["res"]
+    assert "p1_total" in res
+    assert "p2_total" in res
+    assert "diff" in res
+    assert "outcome" in res
+    assert "Contest results: " in output
 
 
 def test_roll_xdy_in_v8_sandbox():
@@ -398,6 +392,3 @@ state['res'] = res
     assert res["total"] == sum(res["rolls"])
     assert res["interpretation"].startswith("interpretation of the dice roll is '")
     assert "interpretation of the dice roll is '" in output
-
-
-

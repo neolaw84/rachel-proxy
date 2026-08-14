@@ -53,6 +53,7 @@ orchestration:
     interval_turns:  8              # k = 10 turns
     trigger_probability: 0.10       # p = 0.10
     bundle_llm: true                # If true, runs inline using main LLM tool calls. If false, runs in separate node.
+    max_retries: 3
     llm:
       model: "google/gemini-3.5-flash"
       base_url: "https://openrouter.ai/api/v1/chat/completions"
@@ -78,6 +79,7 @@ orchestration:
     interval_turns:  8
     trigger_probability: 0.10
     bundle_llm: true
+    max_retries: 3
     llm:
       model: "google/gemini-3.5-flash"
       base_url: "https://openrouter.ai/api/v1/chat/completions"

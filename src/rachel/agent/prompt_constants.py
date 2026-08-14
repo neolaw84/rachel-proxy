@@ -40,13 +40,28 @@ STATE_SECTION_BASIC = (
 )
 
 SANDBOX_INFO_V8 = (
-    "- You have access to a JavaScript code execution sandbox (`execute_code_sandbox`) and dice rolling tools (`roll_xdy`). Note that `roll_xdy` can also be called directly within the JavaScript sandbox.\n"
-    "- The JavaScript sandbox allows you to read/mutate the global `state` and `hidden_state` objects. Standard console methods like `console.log` work.\n"
-    "  Note: If the sandbox execution fails (due to syntax errors, exceptions, timeouts, or replacing `state` or `hidden_state` with a non-object), any changes are discarded and the original pre-execution state is fully restored.\n"
+    "- You have access to a JavaScript code execution sandbox (`execute_code_sandbox`).\n"
+    "- The JavaScript sandbox allows you to read/mutate the global `state`, `hidden_state`, and `plan` objects/arrays. Standard console methods like `console.log` work.\n"
+    "  Note: If the sandbox execution fails (due to syntax errors, exceptions, timeouts, or replacing variables with invalid types), any changes are discarded and the original pre-execution state is fully restored.\n"
     "- **Syntax Rules**:\n"
     "  - Modify properties directly on the global objects. Example: `state.party.warrior.hp -= 10; hidden_state.ambush_triggered = true;`\n"
-    "  - AVOID re-declaring the `state` or `hidden_state` objects (e.g., do not write `let state = ...`).\n"
+    "  - AVOID re-declaring the `state`, `hidden_state`, or `plan` objects (e.g., do not write `let state = ...`).\n"
     "  - AVOID writing return statements.\n"
+    "- **Global Sandbox Helper Functions**:\n"
+    "  1. `roll_xdy(numDice, numSides, interpretation)`: Rolls `numDice` dice each with `numSides` sides. Returns an object `{rolls: Array, total: Number, interpretation: String}`.\n"
+    "     * `interpretation` is a dictionary mapping integer upper-bounds to result strings.\n"
+    "     * Example 1: `roll_xdy(3, 6, {\"4\": \"Critical Failure\", \"8\": \"Failure\", \"15\": \"Success\", \"18\": \"Critical Success\"})`\n"
+    "     * Example 2: `roll_xdy(1, 20, {\"1\": \"Fumble\", \"10\": \"Fail\", \"20\": \"Crit\"})`\n"
+    "  2. `contest(p1_dice, p2_dice, m1, m2, interpretation)`: Computes a stat contest. P1 roll + modifiers vs P2 roll + modifiers. Returns `{p1_total: Number, p1_final: Number, p2_total: Number, p2_final: Number, diff: Number, outcome: String}`.\n"
+    "     * `p1_dice` & `p2_dice` are objects: `{num: Number, sides: Number}`.\n"
+    "     * `m1` & `m2` are modifier objects mapping stat names to numeric modifiers.\n"
+    "     * `interpretation` is a dictionary mapping difference integer upper-bounds to outcome strings.\n"
+    "     * Example 1 (different dice sizes): `contest({num: 3, sides: 6}, {num: 4, sides: 5}, {\"strength\": 2}, {\"dexterity\": 1}, {\"-10\": \"Total Defeat\", \"0\": \"Failure\", \"10\": \"Success\", \"20\": \"Total Victory\"})`\n"
+    "     * Example 2 (same dice sizes): `contest({num: 1, sides: 20}, {num: 1, sides: 20}, {\"charisma\": 3}, {\"intelligence\": 0}, {\"-10\": \"Rejected\", \"0\": \"Unconvinced\", \"20\": \"Charmed\"})`\n"
+    "  3. `update_plan_status(updates)`: Updates the status of items in the global `plan` array. Returns status string.\n"
+    "     * `updates` is an array of objects: `[{id: Identifier, status: String}]`.\n"
+    "     * Example 1 (multi-update): `update_plan_status([{id: 1, status: \"completed\"}, {id: 2, status: \"in-progress\"}])`\n"
+    "     * Example 2 (single-update): `update_plan_status([{id: \"find_key\", status: \"completed\"}])`\n"
 )
 
 SANDBOX_INFO_PYTHON = (

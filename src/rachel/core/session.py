@@ -42,6 +42,9 @@ _SYSTEM_SUFFIX_CHARS = 300
 # Pattern to extract turn_key from a proxy-annotated assistant message.
 _TURN_KEY_RE = re.compile(r"\[proxy:.*?turn=([a-f0-9]{24})", re.IGNORECASE)
 
+# Pattern to extract turn_number from a proxy-annotated assistant message.
+_TURN_NUMBER_RE = re.compile(r"\[proxy:.*?turn_number=(\d+)", re.IGNORECASE)
+
 # Pattern to extract session from a proxy-annotated assistant message.
 _PROXY_SESSION_RE = re.compile(r"\[proxy:.*?session=([^\s\]]+)", re.IGNORECASE)
 
@@ -179,6 +182,127 @@ def strip_proxy_annotations(messages: list[dict[str, Any]]) -> list[dict[str, An
             msg = {**msg, "content": _PROXY_BLOCK_RE.sub("", content)}
         cleaned.append(msg)
     return cleaned
+
+
+def resolve_turn_numbers(
+    messages: list[dict[str, Any]],
+    store: Any,
+    num_messages_with_unmutable_turn_number: int = 4,
+) -> list[int | None]:
+    """Resolve and assign a turn number to each message in the incoming history.
+
+    Returns a list of length len(messages) where each element is either an integer turn number or None.
+    """
+    n = len(messages)
+    resolved: list[int | None] = [None] * n
+    if n == 0:
+        return resolved
+
+    # 1. Find the first user message to establish the Anchor
+    first_user_idx = -1
+    for i, msg in enumerate(messages):
+        if msg.get("role") == "user":
+            first_user_idx = i
+            break
+
+    if first_user_idx == -1:
+        # No user message at all, all turns are None
+        return resolved
+
+    # Pre-calculate user message counts up to each index for O(1) lookups (O(n) prefix sum)
+    user_counts = [0] * n
+    count = 0
+    for i in range(first_user_idx, n):
+        if messages[i].get("role") == "user":
+            count += 1
+        user_counts[i] = count
+
+    # Helper: count user messages up to index i (1-based)
+    def count_user_messages_up_to(idx: int) -> int:
+        return user_counts[idx]
+
+    # 2. Assign turn numbers for the first N unmutable messages
+    # First user message is Turn 1. Everything before is None.
+    # Subsequent messages up to index num_messages_with_unmutable_turn_number-1 are Turn 1
+    # until a new user message is encountered.
+    limit = min(n, num_messages_with_unmutable_turn_number)
+    current_turn = 1
+    for i in range(first_user_idx, limit):
+        if messages[i].get("role") == "user":
+            # Count how many user messages we've seen to update the turn number
+            current_turn = count_user_messages_up_to(i)
+        resolved[i] = current_turn
+
+    # 3. For messages after the limit, we iterate backward to resolve
+    # We first resolve non-user messages, then fill in user messages.
+    for i in range(n - 1, limit - 1, -1):
+        msg = messages[i]
+        role = msg.get("role")
+        if role == "user":
+            continue
+
+        # Non-user message: search cache and annotations
+        turn_key = None
+        content = msg.get("content") or ""
+        # Extract turn key
+        match_key = _TURN_KEY_RE.search(content)
+        if match_key:
+            turn_key = match_key.group(1)
+
+        turn_num = None
+        if turn_key:
+            try:
+                meta = store.get_turn_metadata(turn_key)
+                if meta and "turn_number" in meta:
+                    turn_num = meta["turn_number"]
+            except Exception:
+                pass
+
+        if turn_num is None:
+            # Check annotation for turn_number
+            match_num = _TURN_NUMBER_RE.search(content)
+            if match_num:
+                turn_num = int(match_num.group(1))
+
+        if turn_num is None:
+            # Fallback to counting user messages up to this point
+            turn_num = count_user_messages_up_to(i)
+
+        resolved[i] = turn_num
+
+    # Now, fill in the user messages after the limit.
+    # For user messages, use the Turn Number assigned to their immediate next non-user message.
+    # If a user message is at the very end of the list, it is a new turn, so it takes
+    # the last resolved assistant turn number + 1.
+    for i in range(limit, n):
+        if messages[i].get("role") != "user":
+            continue
+
+        if i == n - 1:
+            # User message is the last message
+            # Find the last resolved assistant turn number
+            last_assistant_turn = None
+            for j in range(n - 2, -1, -1):
+                if messages[j].get("role") != "user" and resolved[j] is not None:
+                    last_assistant_turn = resolved[j]
+                    break
+            if last_assistant_turn is not None:
+                resolved[i] = last_assistant_turn + 1
+            else:
+                resolved[i] = count_user_messages_up_to(i)
+        else:
+            # Not the last message, take the turn number of the next non-user message
+            next_non_user_turn = None
+            for j in range(i + 1, n):
+                if messages[j].get("role") != "user":
+                    next_non_user_turn = resolved[j]
+                    break
+            if next_non_user_turn is not None:
+                resolved[i] = next_non_user_turn
+            else:
+                resolved[i] = count_user_messages_up_to(i)
+
+    return resolved
 
 
 # ---------------------------------------------------------------------------

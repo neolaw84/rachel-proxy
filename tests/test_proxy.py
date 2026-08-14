@@ -7,7 +7,7 @@ import os
 from rachel.proxy import app
 from rachel.proxy import app
 from rachel.auth import PROXY_API_KEY
-from rachel.core.state import SessionStateStore
+from rachel.core.state import get_session_storage
 from rachel.core.settings_storage import FileSettingsStorage
 
 
@@ -82,13 +82,13 @@ def test_normal_flow_and_persistence(mock_run, client, auth_headers, tmp_path, e
 
             # The response must contain the annotation with session ID and turn key
             import re
-            m = re.search(r"\[proxy:\s*session=([^\s]+)\s*turn=([a-f0-9]{24})\]", content)
+            m = re.search(r"\[proxy:\s*session=([^\s]+)\s*turn=([a-f0-9]{24})(?:\s+turn_number=\d+)?\]", content)
             assert m is not None
             session_id = m.group(1)
             turn_key = m.group(2)
 
             # Verify that state was written to disk
-            store = SessionStateStore(session_id, tmp_path)
+            store = get_session_storage(session_id, storage_dir=tmp_path)
             assert store.get_before_state(turn_key)["state"] == {"gold": 100}
 
 
@@ -132,12 +132,12 @@ def test_cache_miss_handling(mock_run, client, auth_headers, tmp_path, engine_na
 
             # Verify new turn state was saved under computed turn key
             import re
-            m = re.search(r"\[proxy:\s*session=([^\s]+)\s*turn=([a-f0-9]{24})\]", content)
+            m = re.search(r"\[proxy:\s*session=([^\s]+)\s*turn=([a-f0-9]{24})(?:\s+turn_number=\d+)?\]", content)
             assert m is not None
             session_id = m.group(1)
             turn_key = m.group(2)
 
-            store = SessionStateStore(session_id, tmp_path)
+            store = get_session_storage(session_id, storage_dir=tmp_path)
             assert store.get_before_state(turn_key)["state"] == {"quest": "active"}
 
 
@@ -208,7 +208,7 @@ def test_export_session_success(client, auth_headers, tmp_path):
     with patch("rachel.routes.sessions.STATE_STORAGE_DIR", tmp_path):
         # Setup session data
         session_id = "test-export"
-        store = SessionStateStore(session_id, tmp_path)
+        store = get_session_storage(session_id, storage_dir=tmp_path)
         before_state = {"state": {"gold": 10}, "plan": [], "summary": "", "hidden_state": {}}
         after_state = {"state": {"gold": 20}, "plan": ["find key"], "summary": "found key", "hidden_state": {}}
         store.save_turn("abcdefabcdefabcdefabcdef", before_state, after_state)
@@ -235,7 +235,12 @@ def test_import_session_invalid_schema(client, auth_headers, tmp_path):
         assert resp.status_code == 400
 
         # Invalid turn key length
-        payload = {"short": {"before": {}, "after": {}}}
+        payload = {"short": {"meta-data": {}, "before": {}, "after": {}}}
+        resp = client.post("/v1/sessions/test-import/import", json=payload, headers=auth_headers)
+        assert resp.status_code == 400
+
+        # Missing meta-data
+        payload = {"abcdefabcdefabcdefabcdef": {"before": {}, "after": {}}}
         resp = client.post("/v1/sessions/test-import/import", json=payload, headers=auth_headers)
         assert resp.status_code == 400
 
@@ -245,6 +250,7 @@ def test_import_session_success(client, auth_headers, tmp_path):
         session_id = "test-import-success"
         payload = {
             "abcdefabcdefabcdefabcdef": {
+                "meta-data": {"session_id": session_id, "turn_number": 1},
                 "before": {"state": {"hp": 100}},
                 "after": {"state": {"hp": 80}, "plan": ["run"]}
             }
@@ -254,9 +260,10 @@ def test_import_session_success(client, auth_headers, tmp_path):
         assert resp.json() == {"status": "ok", "message": f"Session {session_id} imported."}
 
         # Verify that state was written and can be loaded
-        store = SessionStateStore(session_id, tmp_path)
-        assert "abcdefabcdefabcdefabcdef" in store._data
-        turn_data = store._data["abcdefabcdefabcdefabcdef"]
+        store = get_session_storage(session_id, storage_dir=tmp_path)
+        turns = store.get_all_turns()
+        assert "abcdefabcdefabcdefabcdef" in turns
+        turn_data = turns["abcdefabcdefabcdefabcdef"]
         assert turn_data["before"]["state"] == {"hp": 100}
         assert turn_data["after"]["state"] == {"hp": 80}
         assert turn_data["after"]["plan"] == ["run"]

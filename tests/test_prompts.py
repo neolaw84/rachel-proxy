@@ -57,40 +57,10 @@ def test_get_plan_prompt():
 def test_get_tools_schema_filtering():
     from rachel.sandbox.schemas import get_tools_schema
 
-    # Test default
+    # Test default returns only execute_code_sandbox
     schemas = get_tools_schema("v8")
     names = [s["function"]["name"] for s in schemas]
-    assert "execute_code_sandbox" in names
-    assert "roll_xdy" in names
-    assert "random_int" not in names
-    assert "update_plan" not in names
-    assert "update_plan_status" in names
-    assert "append_summary" not in names
-
-    roll_schema = next(s["function"] for s in schemas if s["function"]["name"] == "roll_xdy")
-    assert "interpretation" in roll_schema["parameters"]["properties"]
-    assert "interpretation" in roll_schema["parameters"]["required"]
-
-    # Test include plan
-    schemas = get_tools_schema("v8", include_plan=True)
-    names = [s["function"]["name"] for s in schemas]
-    assert "update_plan" in names
-    assert "update_plan_status" in names
-    assert "append_summary" not in names
-
-    # Test include summary
-    schemas = get_tools_schema("v8", include_summary=True)
-    names = [s["function"]["name"] for s in schemas]
-    assert "update_plan" not in names
-    assert "update_plan_status" in names
-    assert "append_summary" in names
-
-    # Test both
-    schemas = get_tools_schema("v8", include_plan=True, include_summary=True)
-    names = [s["function"]["name"] for s in schemas]
-    assert "update_plan" in names
-    assert "update_plan_status" in names
-    assert "append_summary" in names
+    assert names == ["execute_code_sandbox"]
 
 
 @pytest.mark.asyncio
@@ -479,22 +449,22 @@ def test_middle_out_messages():
     assert result_2[4].content == "Enjoy your ale!"
 
 def test_update_plan_status():
-    from rachel.agent.tools import make_tools
-    state_container = {
-        "current_turn": 5,
-        "rpg_state": {
-            "plan": [
-                {"id": 1, "description": "Goal 1", "status": "to-do", "remark": ""},
-                {"id": 2, "description": "Goal 2", "status": "in-progress", "remark": ""},
-            ]
-        }
+    from rachel.sandbox.sandbox import execute_sandbox
+    state = {
+        "state": {},
+        "hidden_state": {},
+        "plan": [
+            {"id": 1, "description": "Goal 1", "status": "to-do", "remark": ""},
+            {"id": 2, "description": "Goal 2", "status": "in-progress", "remark": ""},
+        ]
     }
-    tools = make_tools(state_container, 2.0)
-    update_plan_status_tool = next(t for t in tools if t.name == "update_plan_status")
-    
-    res = update_plan_status_tool.invoke({"updates": [{"id": 1, "status": "done"}, {"id": "2", "status": "abandoned"}]})
-    assert "Updated status of 2 plan items" in res
-    plan = state_container["rpg_state"]["plan"]
+    updated, logs = execute_sandbox(
+        "update_plan_status([{id: 1, status: 'done'}, {id: 2, status: 'abandoned'}]);",
+        state,
+        2.0
+    )
+    assert "Updated status of 2 plan items" in logs
+    plan = updated["plan"]
     assert plan[0]["status"] == "done"
     assert plan[1]["status"] == "abandoned"
 

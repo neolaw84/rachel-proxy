@@ -18,7 +18,7 @@ If you are a non-technical user, **you do not need to configure anything manuall
 1. **Zero Setup**: Simply point JanitorAI to the basic URL: `https://<your-proxy-domain>/v1/chat/completions`. You do not need to append any session ID to the URL.
 2. **Auto-Grouping**: The proxy will automatically generate a stable session ID for your chat based on the character's system settings and your username. Different chats will automatically get their own isolated memories and states.
 3. **Finding Your Session ID**: Every response from the proxy starts with a small annotation at the top of the message:
-   `[proxy: session=some-generated-id turn=some-turn-hash]`
+   `[proxy: session=some-generated-id turn=some-turn-hash turn_number=some-turn-number]`
    This annotation is visible directly in your chat interface. The value of `session` is your active Session ID.
 4. **Wiping or Resetting Memory**: If you ever want to reset the proxy's state/memory for your chat, copy that `session` value from your chat window and use it with the Reset API endpoint described below (or override it in the chat using an OOC tag).
 
@@ -41,7 +41,7 @@ If no explicit session ID is set in the URL, the proxy scans your message histor
 * The proxy will extract `name_here` and use it as the session ID.
 
 ### 3. Session ID from Proxy Annotation
-If no explicit session ID or OOC tag is found, the proxy scans assistant messages (newest to oldest) to find the last assistant message carrying a `[proxy: session=some-id turn=...]` annotation block and extracts `some-id` to reuse.
+If no explicit session ID or OOC tag is found, the proxy scans assistant messages (newest to oldest) to find the last assistant message carrying a `[proxy: session=some-id turn=... turn_number=...]` annotation block and extracts `some-id` to reuse.
 
 ### 4. Implicit Hash & Username (Lowest Priority / Fallback)
 If no prior level resolves the session ID, the proxy automatically calculates a fallback session ID by combining:

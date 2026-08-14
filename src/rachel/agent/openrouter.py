@@ -12,8 +12,6 @@ from rachel.config import INCLUDE_REASONING, REASONING_PAYLOAD
 
 import re
 
-import re
-
 def parse_think_tags(text: str) -> tuple[str, str]:
     """Extract reasoning from <think>, <thought>, <thinking>, <reasoning> tags and return (clean_content, extracted_reasoning).
     
@@ -147,16 +145,28 @@ def deep_merge(dict1: dict, dict2: dict) -> dict:
             dict1[key] = value
     return dict1
 
-def convert_to_openai_messages(messages: Sequence[BaseMessage]) -> list[dict]:
+def convert_to_openai_messages(
+    messages: Sequence[BaseMessage],
+    turn_numbers: list[int | None] | None = None,
+) -> list[dict]:
     """Convert LangChain messages to OpenAI-compatible message dicts."""
     openai_msgs = []
-    for m in messages:
+    current_turn_number = turn_numbers[-1] if turn_numbers else None
+    for i, m in enumerate(messages):
+        turn_num = None
+        if turn_numbers and i < len(turn_numbers):
+            turn_num = turn_numbers[i]
+        elif turn_numbers:
+            turn_num = current_turn_number
+
+        prefix = f"Turn {turn_num}: " if turn_num is not None else ""
+
         if isinstance(m, SystemMessage):
             openai_msgs.append({"role": "system", "content": m.content})
         elif isinstance(m, AIMessage):
             msg: dict[str, Any] = {"role": "assistant"}
             if m.content:
-                msg["content"] = m.content
+                msg["content"] = prefix + m.content
             if m.tool_calls:
                 msg["tool_calls"] = [
                     {
@@ -181,7 +191,7 @@ def convert_to_openai_messages(messages: Sequence[BaseMessage]) -> list[dict]:
                 "content": m.content
             })
         else:
-            openai_msgs.append({"role": "user", "content": m.content})
+            openai_msgs.append({"role": "user", "content": prefix + m.content})
     return openai_msgs
 
 async def call_llm_streaming(

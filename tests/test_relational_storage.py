@@ -130,6 +130,7 @@ def test_import_export_session_data(sqlite_engine):
 
     import_payload = {
         tk: {
+            "meta-data": {"session_id": "import_session", "turn_number": 1},
             "before": {"state": {"level": 1}},
             "after": {"state": {"level": 2}},
         }

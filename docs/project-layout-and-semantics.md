@@ -18,7 +18,7 @@ rpg-agent-behind-chat-completion/
 │   │   ├── prompts.py              # Dynamic system prompt builder
 │   │   ├── openrouter.py           # Upstream OpenRouter LLM HTTP client wrapper
 │   │   ├── reasoning_formats.py    # Model reasoning tag parsers (<think>, etc.)
-│   │   └── tools.py                # LangChain tool bindings (sandbox, dice, RNG)
+│   │   └── tools.py                # LangChain tool bindings (execute_code_sandbox only)
 │   │
 │   ├── core/                       # Domain Logic, Storage & Key Vault
 │   │   ├── db.py                   # SQLAlchemy ORM models & database engines
@@ -107,7 +107,7 @@ rpg-agent-behind-chat-completion/
 | **`agent/prompts.py`** | Dynamic RPG system prompt generator, persona formatting, and world state injection. | `build_system_prompt()` |
 | **`agent/openrouter.py`** | Upstream OpenRouter LLM API client wrapper supporting streaming and non-streaming completions. | `httpx.AsyncClient` |
 | **`agent/reasoning_formats.py`** | Model-specific reasoning tag parsers (`<think>`, `[reasoning]`) and payload formatters. | `extract_reasoning_payload()` |
-| **`agent/tools.py`** | LangChain tool bindings for the V8 JS code sandbox, dice roller, and RNG utilities. | `sandbox_tool`, `dice_tool` |
+| **`agent/tools.py`** | LangChain tool bindings for the V8 JS code sandbox (execute_code_sandbox only). | `execute_code_sandbox` |
 | **`core/db.py`** | SQLAlchemy ORM models (`Tenant`, `TenantApiKey`, `TenantCredential`, `TenantSetting`, `Session`) and engine factories. | `get_engine()`, `get_sessionmaker()`, `init_db()` |
 | **`core/api_key_storage.py`** | Client Proxy Key storage interface and drivers (`FileApiKeyStorage`, `RelationalApiKeyStorage`). | `BaseApiKeyStorage`, `get_api_key_storage()` |
 | **`core/settings_storage.py`** | Provider credentials and active provider selection storage engine per tenant. | `BaseSettingsStorage`, `get_settings_storage()` |
@@ -118,7 +118,7 @@ rpg-agent-behind-chat-completion/
 | **`routes/sessions.py`** | Endpoint controllers for session inspecting, turn state viewing, and session CRUD operations. | `/v1/sessions`, `/v1/sessions/{id}` |
 | **`routes/system.py`** | Endpoint controllers for SPA static dashboard (`/`), status (`/v1/status`), providers (`/v1/providers`), and client proxy keys (`/v1/proxy-keys`). | `/v1/status`, `/v1/providers`, `/v1/proxy-keys` |
 | **`sandbox/v8_engine.py`** | Py-Mini-Racer V8 JavaScript isolate sandbox engine wrapper for safe code execution. | `MiniRacerV8Engine` |
-| **`sandbox/sandbox.py`** | Abstract sandbox engine interface definition and fallback implementations. | `BaseSandboxEngine` |
+| **`sandbox/sandbox.py`** | Abstract sandbox engine interface definition (standardized on V8). | `SandboxEngine` |
 | **`sandbox/validation.py`** | Code safety validator scanning for unsafe patterns before V8 execution. | `validate_js_code()` |
 | **`sandbox/schemas.py`** | JSON Schemas for OpenRouter tool definitions. | `SANDBOX_TOOL_SCHEMA` |
 

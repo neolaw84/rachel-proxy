@@ -143,6 +143,8 @@ async def test_stream_generator_emits_stop_finish_reason():
         cache_miss=False,
         store=mock_store,
         before_state={},
+        turn_number=1,
+        meta_data={},
     ):
         chunks.append(chunk_bytes.decode())
 

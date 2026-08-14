@@ -56,11 +56,13 @@ def make_tools(state_container: dict[str, Any], sandbox_timeout: float):
             wrapper = {
                 "state": rpg.get("state", {}),
                 "hidden_state": rpg.get("hidden_state", {}),
+                "plan": rpg.get("plan", []),
             }
             updated, output = engine.execute(code, wrapper, sandbox_timeout)
             if isinstance(updated, dict) and "state" in updated and "hidden_state" in updated:
                 rpg["state"] = updated["state"]
                 rpg["hidden_state"] = updated["hidden_state"]
+                rpg["plan"] = updated.get("plan", [])
             else:
                 rpg["state"] = updated
         else:
@@ -119,103 +121,4 @@ def make_tools(state_container: dict[str, Any], sandbox_timeout: float):
         description=description,
     )
 
-    @tool
-    def roll_xdy(num_dice: int, num_sides: int, interpretation: dict[int | str, str]) -> dict[str, Any]:
-        """Roll num_dice dice each with num_sides sides and return a dictionary with rolls, total, and interpretation."""
-        rolls = [random.randint(1, num_sides) for _ in range(num_dice)]
-        total = sum(rolls)
-        interp = get_dice_interpretation(total, interpretation)
-        interp_str = f"interpretation of the dice roll is '{interp}'"
-        result = {
-            "rolls": rolls,
-            "total": total,
-            "interpretation": interp_str,
-        }
-        logger.info("Dice roll: Rolled %dd%d: %s = %d (%s)", num_dice, num_sides, rolls, total, interp_str)
-        return result
-
-    @tool
-    def update_plan(checklist: list[Any]) -> str:
-        """Update the narrative plan/checklist for how the story should progress. The checklist items can be strings or dictionaries matching the plan schema."""
-        normalized = []
-        for idx, item in enumerate(checklist, 1):
-            if isinstance(item, dict):
-                normalized.append({
-                    "id": item.get("id", idx),
-                    "description": item.get("description", ""),
-                    "status": item.get("status", "to-do"),
-                    "remark": item.get("remark", ""),
-                })
-            else:
-                normalized.append({
-                    "id": idx,
-                    "description": str(item),
-                    "status": "to-do",
-                    "remark": "",
-                })
-        state_container["rpg_state"]["plan"] = normalized
-        rpg = state_container["rpg_state"]
-        if isinstance(rpg, dict) and "hidden_state" in rpg and isinstance(rpg["hidden_state"], dict):
-            rpg["hidden_state"]["last_plan_turn"] = state_container.get("current_turn", 1)
-        logger.info("Plan updated: %s", normalized)
-        return "[Plan checklist updated successfully]"
-
-    @tool
-    def update_plan_status(updates: list[dict]) -> str:
-        """Update the status of plan items by their ID. updates parameter is a list of {'id': int_or_str, 'status': str} updates."""
-        rpg = state_container["rpg_state"]
-        plan = rpg.get("plan", [])
-        if not isinstance(plan, list):
-            plan = []
-        
-        # Build a map of id -> item for fast lookups
-        plan_map = {}
-        for item in plan:
-            if isinstance(item, dict) and "id" in item:
-                plan_map[item["id"]] = item
-        
-        updated_count = 0
-        for u in updates:
-            if not isinstance(u, dict) or "id" not in u or "status" not in u:
-                continue
-            
-            item_id = u["id"]
-            item = None
-            if item_id in plan_map:
-                item = plan_map[item_id]
-            else:
-                # Fallback: try converting string key to integer or vice versa
-                try:
-                    int_id = int(item_id)
-                    if int_id in plan_map:
-                        item = plan_map[int_id]
-                except (ValueError, TypeError):
-                    pass
-                
-                if not item:
-                    str_id = str(item_id)
-                    if str_id in plan_map:
-                        item = plan_map[str_id]
-
-            if item:
-                item["status"] = u["status"]
-                updated_count += 1
-                
-        logger.info("Plan status updated: %s items updated", updated_count)
-        return f"[Updated status of {updated_count} plan items successfully]"
-
-    @tool
-    def append_summary(text: str) -> str:
-        """Append a new summary block describing the events that have unfolded since the last summary (200-300 words)."""
-        current_summary = state_container["rpg_state"].get("summary", "")
-        if current_summary:
-            state_container["rpg_state"]["summary"] = current_summary.strip() + "\n\n" + text.strip()
-        else:
-            state_container["rpg_state"]["summary"] = text.strip()
-        rpg = state_container["rpg_state"]
-        if isinstance(rpg, dict) and "hidden_state" in rpg and isinstance(rpg["hidden_state"], dict):
-            rpg["hidden_state"]["last_summary_turn"] = state_container.get("current_turn", 1)
-        logger.info("Summary appended: %s", text)
-        return "[Summary appended successfully]"
-
-    return [execute_code_sandbox, roll_xdy, update_plan, update_plan_status, append_summary]
+    return [execute_code_sandbox]
