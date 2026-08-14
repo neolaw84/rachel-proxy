@@ -11,6 +11,8 @@ from langgraph.graph.message import add_messages
 
 from rachel.agent.prompts import (
     get_system_instruction,
+    get_static_system_prompt,
+    get_dynamic_turn_directive,
     get_summary_prompt,
     get_plan_prompt,
     get_range_reference,
@@ -39,6 +41,16 @@ class _GraphDelegate:
     def get_system_instruction(*args, **kwargs):
         import rachel.agent.graph as graph
         return graph.get_system_instruction(*args, **kwargs)
+
+    @staticmethod
+    def get_static_system_prompt(*args, **kwargs):
+        import rachel.agent.graph as graph
+        return graph.get_static_system_prompt(*args, **kwargs)
+
+    @staticmethod
+    def get_dynamic_turn_directive(*args, **kwargs):
+        import rachel.agent.graph as graph
+        return graph.get_dynamic_turn_directive(*args, **kwargs)
 
     @staticmethod
     async def call_openrouter_streaming(*args, **kwargs):
@@ -107,7 +119,7 @@ def _build_llm_node(
         if summary_called:
             bundle_summary_fired = False
 
-        # 1. Inject the Dynamic System Instruction warning the LLM about the remaining budget
+        # 1. Generate Static System Prompt and Dynamic Turn Directive
         rem_iterations = max(0, max_iterations - state["iteration_count"] - 1)
         current_rpg_state = state_container.get("rpg_state", {})
         turn_number = sum(1 for m in state["messages"] if isinstance(m, AIMessage)) + 1
@@ -140,11 +152,37 @@ def _build_llm_node(
             turn_number=turn_number,
         )
 
+        static_prompt = _GraphDelegate.get_static_system_prompt(
+            sandbox_timeout=sandbox_timeout,
+            engine_name=get_sandbox_engine().name,
+        )
+
+        dynamic_directive = _GraphDelegate.get_dynamic_turn_directive(
+            rpg_state=current_rpg_state,
+            max_iterations=max_iterations,
+            current_iteration=state["iteration_count"] + 1,
+            rem_iterations=rem_iterations,
+            messages=state["messages"],
+            engine_name=get_sandbox_engine().name,
+            bundle_plan_fired=bundle_plan_fired,
+            bundle_summary_fired=bundle_summary_fired,
+            bundle_cleanup_fired=bundle_cleanup_fired,
+            turn_number=turn_number,
+        )
+
         openai_msgs = convert_to_openai_messages(
             state["messages"],
             turn_numbers=state_container.get("turn_numbers"),
         )
-        
+
+        # Append static system prompt to Message 0 (or insert at index 0 if not system)
+        if openai_msgs and openai_msgs[0].get("role") == "system":
+            orig_sys = openai_msgs[0].get("content") or ""
+            openai_msgs[0]["content"] = f"{orig_sys}\n\n---\n{static_prompt}".strip()
+        else:
+            openai_msgs.insert(0, {"role": "system", "content": static_prompt})
+
+        # Append dynamic turn directive to last user message
         found_user = False
         for msg in reversed(openai_msgs):
             if msg.get("role") == "user":
@@ -152,14 +190,14 @@ def _build_llm_node(
                 instruction_block = (
                     f"\n\n---\n"
                     f"[RPG DIRECTIVE & GAME STATE (Turn {turn_number})]\n"
-                    f"{system_instruction}"
+                    f"{dynamic_directive}"
                 )
                 msg["content"] = orig_content + instruction_block
                 found_user = True
                 break
-                
+
         if not found_user:
-            openai_msgs.append({"role": "system", "content": system_instruction})
+            openai_msgs.append({"role": "system", "content": dynamic_directive})
 
         # 2. Call OpenRouter
         content, reasoning, tcs = await _GraphDelegate.call_openrouter_streaming(
@@ -212,6 +250,75 @@ def _build_llm_node(
         }
     return llm_node
 
+SUBMIT_PLAN_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "submit_plan",
+        "description": "Submit the updated checklist of story goals and NPC plans as a structured array.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "description": "List of plan items",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": ["integer", "string"], "description": "Unique identifier"},
+                            "description": {"type": "string", "description": "Goal description"},
+                            "status": {
+                                "type": "string",
+                                "enum": ["to-do", "in-progress", "completed", "failed"],
+                                "description": "Current status"
+                            },
+                            "remark": {"type": "string", "description": "Optional notes or remarks"}
+                        },
+                        "required": ["id", "description", "status"]
+                    }
+                }
+            },
+            "required": ["items"]
+        }
+    }
+}
+
+SUBMIT_SUMMARY_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "submit_summary",
+        "description": "Submit the narrative summary block describing developments.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "summary": {
+                    "type": "string",
+                    "description": "Concise narrative summary block."
+                }
+            },
+            "required": ["summary"]
+        }
+    }
+}
+
+SUBMIT_CLEANUP_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "submit_cleanup",
+        "description": "Submit code snippet to clean up state and hidden_state variables.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string",
+                    "description": "Code snippet to execute in sandbox."
+                }
+            },
+            "required": ["code"]
+        }
+    }
+}
+
+
 def _build_summary_node(api_key: str, state_container: dict[str, Any], base_url: str | None = None):
     """Return the Summary node callable."""
     async def summary_node(state: AgentState, config: RunnableConfig) -> dict:
@@ -256,17 +363,39 @@ def _build_summary_node(api_key: str, state_container: dict[str, Any], base_url:
         history_msgs.append({"role": "system", "content": summary_prompt})
 
         try:
-            summary_delta = await _GraphDelegate.call_openrouter_direct(
+            direct_res = await _GraphDelegate.call_openrouter_direct(
                 api_key=api_key,
                 base_url=base_url or SUMMARY_BASE_URL,
                 model=SUMMARY_MODEL,
                 openai_messages=history_msgs,
                 temperature=SUMMARY_TEMPERATURE,
+                tools=[SUBMIT_SUMMARY_TOOL],
+                tool_choice={"type": "function", "function": {"name": "submit_summary"}},
+                return_tool_calls=True,
                 **session_kwargs,
             )
-            summary_delta = summary_delta.strip()
-            if summary_delta.startswith('"') and summary_delta.endswith('"'):
-                summary_delta = summary_delta[1:-1].strip()
+            if isinstance(direct_res, tuple) and len(direct_res) == 2:
+                resp, tcs = direct_res
+            else:
+                resp, tcs = str(direct_res), []
+
+            summary_delta = None
+            if tcs:
+                for tc in tcs:
+                    if tc.get("function", {}).get("name") == "submit_summary":
+                        raw_args = tc.get("function", {}).get("arguments", "")
+                        try:
+                            parsed = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+                            if isinstance(parsed, dict) and "summary" in parsed:
+                                summary_delta = str(parsed["summary"])
+                        except Exception:
+                            pass
+
+            if not summary_delta:
+                summary_delta = resp.strip()
+                if summary_delta.startswith('"') and summary_delta.endswith('"'):
+                    summary_delta = summary_delta[1:-1].strip()
+
             if prev_summary:
                 rpg["summary"] = prev_summary.strip() + "\n\n" + summary_delta
             else:
@@ -332,21 +461,42 @@ def _build_plan_node(api_key: str, state_container: dict[str, Any], base_url: st
                 error_context = "\n".join(errors)
                 current_msgs.append({
                     "role": "system",
-                    "content": f"The previous attempt failed with the following error(s):\n{error_context}\n\nPlease try again and output ONLY a valid JSON array matching the requested schema."
+                    "content": f"The previous attempt failed with the following error(s):\n{error_context}\n\nPlease try again and call submit_plan tool with valid items matching schema."
                 })
 
             try:
-                plan_response = await _GraphDelegate.call_openrouter_direct(
+                direct_res = await _GraphDelegate.call_openrouter_direct(
                     api_key=api_key,
                     base_url=base_url or PLAN_BASE_URL,
                     model=PLAN_MODEL,
                     openai_messages=current_msgs,
                     temperature=PLAN_TEMPERATURE,
+                    tools=[SUBMIT_PLAN_TOOL],
+                    tool_choice={"type": "function", "function": {"name": "submit_plan"}},
+                    return_tool_calls=True,
                     **session_kwargs,
                 )
-                clean_resp = _strip_fenced_code_block(plan_response)
+                if isinstance(direct_res, tuple) and len(direct_res) == 2:
+                    plan_response, tcs = direct_res
+                else:
+                    plan_response, tcs = str(direct_res), []
 
-                new_plan = json.loads(clean_resp)
+                new_plan = None
+                if tcs:
+                    for tc in tcs:
+                        if tc.get("function", {}).get("name") == "submit_plan":
+                            raw_args = tc.get("function", {}).get("arguments", "")
+                            try:
+                                parsed = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+                                if isinstance(parsed, dict) and "items" in parsed and isinstance(parsed["items"], list):
+                                    new_plan = parsed["items"]
+                            except Exception:
+                                pass
+
+                if new_plan is None:
+                    clean_resp = _strip_fenced_code_block(plan_response)
+                    new_plan = json.loads(clean_resp)
+
                 if not isinstance(new_plan, list):
                     raise ValueError("Output must be a JSON array of objects.")
 
@@ -448,15 +598,36 @@ def _build_cleanup_node(api_key: str, state_container: dict[str, Any], sandbox_t
             history_msgs = [{"role": "system", "content": cleanup_prompt}]
 
             try:
-                code_response = await _GraphDelegate.call_openrouter_direct(
+                direct_res = await _GraphDelegate.call_openrouter_direct(
                     api_key=api_key,
                     base_url=base_url or CLEANUP_BASE_URL,
                     model=CLEANUP_MODEL,
                     openai_messages=history_msgs,
                     temperature=CLEANUP_TEMPERATURE,
+                    tools=[SUBMIT_CLEANUP_TOOL],
+                    tool_choice={"type": "function", "function": {"name": "submit_cleanup"}},
+                    return_tool_calls=True,
                     **session_kwargs,
                 )
-                code = _strip_fenced_code_block(code_response)
+                if isinstance(direct_res, tuple) and len(direct_res) == 2:
+                    code_response, tcs = direct_res
+                else:
+                    code_response, tcs = str(direct_res), []
+
+                code = None
+                if tcs:
+                    for tc in tcs:
+                        if tc.get("function", {}).get("name") == "submit_cleanup":
+                            raw_args = tc.get("function", {}).get("arguments", "")
+                            try:
+                                parsed = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+                                if isinstance(parsed, dict) and "code" in parsed:
+                                    code = str(parsed["code"])
+                            except Exception:
+                                pass
+
+                if not code:
+                    code = _strip_fenced_code_block(code_response)
 
                 # Execute sandbox code
                 if isinstance(rpg, dict) and all(k in rpg for k in ("state", "plan", "summary", "hidden_state")):

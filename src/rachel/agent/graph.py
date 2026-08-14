@@ -24,7 +24,11 @@ from rachel.agent.nodes import (
 )
 
 # Exported/delegated for test mock compatibility
-from rachel.agent.prompts import get_system_instruction
+from rachel.agent.prompts import (
+    get_system_instruction,
+    get_static_system_prompt,
+    get_dynamic_turn_directive,
+)
 
 async def call_openrouter_direct(*args, **kwargs):
     from rachel.agent import openrouter

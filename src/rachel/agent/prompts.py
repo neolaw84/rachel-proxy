@@ -15,6 +15,8 @@ from rachel.agent.prompt_constants import (
     SANDBOX_INFO_V8,
     SANDBOX_INFO_PYTHON,
     SYSTEM_INSTRUCTION_TEMPLATE,
+    STATIC_SYSTEM_INSTRUCTION_TEMPLATE,
+    DYNAMIC_TURN_DIRECTIVE_TEMPLATE,
     SUMMARY_PROMPT_BUNDLE,
     SUMMARY_PROMPT_STANDALONE,
     PLAN_PROMPT_BUNDLE,
@@ -86,9 +88,31 @@ def middle_out_messages(
     result = [condensed_msg] + list(messages[prefix_len:])
     return result
 
-def get_system_instruction(
+def get_static_system_prompt(
+    sandbox_timeout: float = 2.0,
+    engine_name: str = "v8",
+) -> str:
+    """Return the invariant static system instruction prompt for Message 0."""
+    import rachel.config as config
+
+    sandbox_info = SANDBOX_INFO_V8 if engine_name == "v8" else SANDBOX_INFO_PYTHON
+    state_constraints_info = (
+        f"- **State Cleanliness Constraints**:\n"
+        f"  - Limit string values in `state` or `hidden_state` to a maximum of {config.MAX_STRING_LENGTH} characters.\n"
+        f"  - Limit object/dictionary/list width to a maximum of {config.MAX_WIDTH} keys or elements.\n"
+        f"  - Limit object nesting depth to a maximum of {config.MAX_DEPTH} levels.\n"
+        f"  - Sandbox validation will programmatically enforce these constraints and discard any violating updates.\n"
+    )
+
+    return STATIC_SYSTEM_INSTRUCTION_TEMPLATE.format(
+        sandbox_info=sandbox_info,
+        state_constraints_info=state_constraints_info,
+        sandbox_timeout=sandbox_timeout,
+    )
+
+
+def get_dynamic_turn_directive(
     rpg_state: Any,
-    sandbox_timeout: float,
     max_iterations: int,
     current_iteration: int,
     rem_iterations: int,
@@ -99,7 +123,7 @@ def get_system_instruction(
     bundle_cleanup_fired: bool = False,
     turn_number: int = 1,
 ) -> str:
-    """Return the dynamic system instruction for the LLM node."""
+    """Return the dynamic turn directive block appended to the last user message."""
     # 1. Resolve '? turns ago' values from hidden_state
     hidden = {}
     if isinstance(rpg_state, dict) and "hidden_state" in rpg_state and isinstance(rpg_state["hidden_state"], dict):
@@ -165,13 +189,7 @@ def get_system_instruction(
             state_json=json.dumps(rpg_state, indent=2, ensure_ascii=False)
         )
 
-    # 4. Format sandbox constraints
-    if engine_name == "v8":
-        sandbox_info = SANDBOX_INFO_V8
-    else:
-        sandbox_info = SANDBOX_INFO_PYTHON
-
-    # 5. Format H2 blocks if triggered
+    # 4. Format H2 blocks if triggered
     h2_instruction_blocks = ""
     if bundle_plan_fired:
         range_ref = get_range_reference(messages, plan_turns_val)
@@ -201,47 +219,47 @@ def get_system_instruction(
         )
         h2_instruction_blocks += f"\n\n## Storage Cleanup Required\n{cleanup_text}"
 
-    import rachel.config as config
-
-    # Dynamic Summary & Plan Accessibility guidelines
-    guidelines_list = [
-        "- **Plan Status Updates**: Use the `update_plan_status` tool to update the statuses of checklist items on the **Plan**."
-    ]
-
-    if bundle_plan_fired:
-        guidelines_list.append(
-            "- **Narrative Plan Updates**: Use the `update_plan` tool to replace the **Plan** entirely (a list of dictionaries)."
-        )
-
-    if bundle_summary_fired:
-        guidelines_list.append(
-            "- **Story Summary Updates**: Use the `append_summary` tool to modify the \"Active Story Summary (Rolling Summary)\"."
-        )
-
-    summary_plan_access_guidelines = "\n".join(guidelines_list) + "\n"
-
-    state_constraints_info = (
-        f"- **State Cleanliness Constraints**:\n"
-        f"  - Limit string values in `state` or `hidden_state` to a maximum of {config.MAX_STRING_LENGTH} characters.\n"
-        f"  - Limit object/dictionary/list width to a maximum of {config.MAX_WIDTH} keys or elements.\n"
-        f"  - Limit object nesting depth to a maximum of {config.MAX_DEPTH} levels.\n"
-        f"  - Sandbox validation will programmatically enforce these constraints and discard any violating updates.\n"
-    )
-
-    return SYSTEM_INSTRUCTION_TEMPLATE.format(
+    return DYNAMIC_TURN_DIRECTIVE_TEMPLATE.format(
         total_tasks=total_tasks,
         task_word=task_word,
         tasks_block=tasks_block,
         state_section=state_section,
-        sandbox_info=sandbox_info,
-        summary_plan_access_guidelines=summary_plan_access_guidelines,
-        state_constraints_info=state_constraints_info,
-        sandbox_timeout=sandbox_timeout,
         max_iterations=max_iterations,
         current_iteration=current_iteration,
         rem_iterations=rem_iterations,
         h2_instruction_blocks=h2_instruction_blocks,
     )
+
+
+def get_system_instruction(
+    rpg_state: Any,
+    sandbox_timeout: float,
+    max_iterations: int,
+    current_iteration: int,
+    rem_iterations: int,
+    messages: Sequence[BaseMessage] = (),
+    engine_name: str = "v8",
+    bundle_plan_fired: bool = False,
+    bundle_summary_fired: bool = False,
+    bundle_cleanup_fired: bool = False,
+    turn_number: int = 1,
+) -> str:
+    """Return the combined system instruction for backwards compatibility."""
+    static_part = get_static_system_prompt(sandbox_timeout=sandbox_timeout, engine_name=engine_name)
+    dynamic_part = get_dynamic_turn_directive(
+        rpg_state=rpg_state,
+        max_iterations=max_iterations,
+        current_iteration=current_iteration,
+        rem_iterations=rem_iterations,
+        messages=messages,
+        engine_name=engine_name,
+        bundle_plan_fired=bundle_plan_fired,
+        bundle_summary_fired=bundle_summary_fired,
+        bundle_cleanup_fired=bundle_cleanup_fired,
+        turn_number=turn_number,
+    )
+    return f"{static_part}\n\n---\n{dynamic_part}"
+
 
 def get_summary_prompt(
     prev_summary: str,

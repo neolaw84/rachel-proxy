@@ -107,6 +107,43 @@ SYSTEM_INSTRUCTION_TEMPLATE = (
     "{h2_instruction_blocks}"
 )
 
+STATIC_SYSTEM_INSTRUCTION_TEMPLATE = (
+    "[Agent System Instruction]\n\n"
+    "### Roleplay & Secrecy Guidelines\n"
+    "- **Hidden State Privacy**: Never mention the words \"Secret State\", \"Hidden State\", or output the raw JSON contents/variables from that section. Translate these metrics into organic, atmospheric narrative (e.g., instead of outputting \"dungeon_boss_hp: 250\", write \"The threat ahead looms large and formidable\").\n"
+    "- **Stateless Nature**: You do not retain memory of variables across turns (API calls). To remember structural variables, save them to the public `state` or secret `hidden_state` objects using the code sandbox. AVOID storing narrative summaries, logs of events/conversations, or future plans in `state` or `hidden_state`.\n\n"
+    "### Tool & State Mapping Rules\n"
+    "- **State Modifications**: Use the `execute_code_sandbox` tool to modify the **State** (`state`) and **Hidden State** (`hidden_state`).\n"
+    "- **Plan Modifications**: The top-level `plan` array is read-only. Use `update_plan_status([{{id: ..., status: ...}}])` to update status. Structural re-planning is managed automatically.\n\n"
+    "### True Randomness Guidelines\n"
+    "- **Provide Interpretation Mapping with Dice Rolls**: When calling `roll_xdy(num_dice, num_sides, interpretation)`:\n"
+    "  1. Calculate roll range: min = `num_dice`, max = `num_dice * num_sides`.\n"
+    "  2. Construct mandatory `interpretation` mapping upper-bound integer thresholds to outcome strings. The highest key MUST equal `max_roll`.\n"
+    "  3. Example for 3d6 (range 3 to 18): `roll_xdy(3, 6, {{\\\"4\\\": \\\"critical failure\\\", \\\"8\\\": \\\"failure\\\", \\\"16\\\": \\\"success\\\", \\\"18\\\": \\\"critical success\\\"}})`.\n"
+    "### Sandbox Execution Constraints\n"
+    "{sandbox_info}"
+    "{state_constraints_info}"
+    "- Sandbox execution has a hard timeout of {sandbox_timeout} seconds. If execution fails, all changes are discarded.\n\n"
+    "### Sandbox Mathematics & Logic Directives\n"
+    "- **Computational Accuracy**: AVOID performing arithmetic, math, or game mechanics calculations in your text response. You should execute all mathematical updates (e.g., modifying hit points, calculating currency, computing probabilities, or updating statistics) programmatically inside the `execute_code_sandbox` sandbox to ensure accuracy."
+)
+
+DYNAMIC_TURN_DIRECTIVE_TEMPLATE = (
+    "### Tasks\n\n"
+    "Perform the following {total_tasks} {task_word}: \n\n"
+    "{tasks_block}\n\n"
+    "### Current Variables\n\n"
+    "{state_section}\n\n"
+    "### Budget & Directives\n"
+    "- You have a strict budget of up to {max_iterations} tool-calling iterations.\n"
+    "- Current Iteration: {current_iteration} of {max_iterations}.\n"
+    "- Remaining Tool-Calling Budget: {rem_iterations}.\n"
+    "- If you reach iteration {max_iterations}, no further tool calls will be executed. You must formulate your final response based on the state at that point.\n"
+    "- Feel free to use the sandbox (`execute_code_sandbox`) or dice rolling (`roll_xdy`) tools for mathematics, determining random events, and chances."
+    "{h2_instruction_blocks}"
+)
+
+
 SUMMARY_PROMPT_BUNDLE = (
     "Review the events of the last {turns_since_update} turns of conversation. "
     "The range of messages to summarize is: \"{range_ref}\".\n"

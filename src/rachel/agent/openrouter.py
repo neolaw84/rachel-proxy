@@ -206,6 +206,8 @@ async def call_llm_streaming(
     session_id: str | None = None,
     prompt_cache_key: str | None = None,
     user: str | None = None,
+    tools: list[dict] | None = None,
+    tool_choice: Any | None = None,
 ) -> tuple[str, str, list[dict]]:
     """Call LLM provider, streaming reasoning/content chunks to stream_queue if present."""
     headers = {
@@ -214,16 +216,19 @@ async def call_llm_streaming(
         "HTTP-Referer": "http://localhost",
         "X-Title": "RPG Agent Proxy",
     }
+    payload_tools = tools if tools is not None else get_tools_schema(
+        get_sandbox_engine().name,
+        include_plan=include_plan,
+        include_summary=include_summary,
+    )
     payload: dict[str, Any] = {
         "model": model,
         "messages": openai_messages,
-        "tools": get_tools_schema(
-            get_sandbox_engine().name,
-            include_plan=include_plan,
-            include_summary=include_summary,
-        ),
+        "tools": payload_tools,
         "stream": stream_queue is not None,
     }
+    if tool_choice is not None:
+        payload["tool_choice"] = tool_choice
     if temperature is not None:
         payload["temperature"] = temperature
     if session_id:
@@ -367,8 +372,11 @@ async def call_llm_direct(
     session_id: str | None = None,
     prompt_cache_key: str | None = None,
     user: str | None = None,
-) -> str:
-    """Make a simple, direct, non-streaming completion call to provider without tool injection."""
+    tools: list[dict] | None = None,
+    tool_choice: Any | None = None,
+    return_tool_calls: bool = False,
+) -> str | tuple[str, list[dict]]:
+    """Make a simple, direct, non-streaming completion call to provider."""
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -380,6 +388,10 @@ async def call_llm_direct(
         "messages": openai_messages,
         "temperature": temperature,
     }
+    if tools is not None:
+        payload["tools"] = tools
+    if tool_choice is not None:
+        payload["tool_choice"] = tool_choice
     if session_id:
         headers["X-Session-Id"] = session_id
         payload["session_id"] = session_id
@@ -397,8 +409,12 @@ async def call_llm_direct(
         if response.status_code >= 400:
             raise RuntimeError(f"Provider API error ({response.status_code}): {response.text}")
         res_json = response.json()
-        raw_content = res_json["choices"][0]["message"].get("content") or ""
+        msg = res_json["choices"][0]["message"]
+        raw_content = msg.get("content") or ""
+        tcs = msg.get("tool_calls") or []
         clean_content, _ = parse_think_tags(raw_content)
+        if return_tool_calls:
+            return clean_content, tcs
         return clean_content
 
 # Backward compatibility aliases

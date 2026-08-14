@@ -170,6 +170,9 @@ def _v8_worker(
                     for (var j = 0; j < plan.length; j++) {
                         if (plan[j] && String(plan[j].id) === String(u.id)) {
                             plan[j].status = u.status;
+                            if (u.remark !== undefined) {
+                                plan[j].remark = u.remark;
+                            }
                             updated_count++;
                         }
                     }
@@ -245,7 +248,24 @@ def _v8_worker(
                     "reverting to original plan. ---\n"
                 )
                 updated_plan = state.get("plan", [])
-            
+            else:
+                orig_plan = state.get("plan", [])
+                if isinstance(orig_plan, list):
+                    reconstructed = []
+                    updated_map = {str(item.get("id")): item for item in updated_plan if isinstance(item, dict) and "id" in item}
+                    for item in orig_plan:
+                        if isinstance(item, dict):
+                            item_id = str(item.get("id"))
+                            new_item = dict(item)
+                            if item_id in updated_map:
+                                new_item["status"] = updated_map[item_id].get("status", item.get("status", "to-do"))
+                                if "remark" in updated_map[item_id]:
+                                    new_item["remark"] = updated_map[item_id]["remark"]
+                            reconstructed.append(new_item)
+                        else:
+                            reconstructed.append(item)
+                    updated_plan = reconstructed
+
             logs = "\n".join(res.get("logs", []))
             updated_wrapper = {
                 "state": updated_state,
