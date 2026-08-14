@@ -28,6 +28,15 @@ from rachel.agent.prompts import (
     get_system_instruction,
     get_static_system_prompt,
     get_dynamic_turn_directive,
+    get_static_plan_prompt,
+    get_dynamic_plan_directive,
+    get_static_summary_prompt,
+    get_dynamic_summary_directive,
+    get_static_cleanup_prompt,
+    get_dynamic_cleanup_directive,
+    get_plan_prompt,
+    get_summary_prompt,
+    get_cleanup_prompt,
 )
 
 async def call_openrouter_direct(*args, **kwargs):

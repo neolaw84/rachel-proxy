@@ -200,3 +200,59 @@ CLEANUP_PROMPT_STANDALONE = (
     "Output ONLY the raw {lang} code snippet to execute. AVOID including markdown code blocks, "
     "introductory conversational text, or any explanations."
 )
+
+STATIC_PLAN_PROMPT_TEMPLATE = (
+    "[Agent Plan Instruction]\n\n"
+    "### Role & Objectives\n"
+    "- You are a story planner and NPC coordinator for a role-playing game.\n"
+    "- Your goal is to review the current plan, rolling summary, game state, and recent developments to output an updated checklist of future story goals and NPC plans.\n"
+    "- Submit your updated plan using the `submit_plan` function tool with array of items `[{{\"id\": ..., \"description\": ..., \"status\": ..., \"remark\": ...}}]`.\n"
+    "- Limit item `description` and `remark` to a maximum of 500 characters each."
+)
+
+DYNAMIC_PLAN_DIRECTIVE_TEMPLATE = (
+    "### Story Planner Context\n\n"
+    "Here is the public State:\n```json\n{state_str}\n```\n\n"
+    "Here is the secret Hidden-State:\n```json\n{hidden_str}\n```\n\n"
+    "Here is the rolling story summary so far:\n{summary_str}\n\n"
+    "Here is the current plan (last updated {turns_since_update} turns ago):\n{prev_plan}\n\n"
+    "### Story Planner Task\n"
+    "Review the story developments since the last plan update (range: \"{range_ref}\").\n"
+    "Call the `submit_plan` function tool with an updated checklist of goals and plans."
+)
+
+STATIC_SUMMARY_PROMPT_TEMPLATE = (
+    "[Agent Summary Instruction]\n\n"
+    "### Role & Objectives\n"
+    "- You are a narrative summarizer for a role-playing game.\n"
+    "- Your goal is to summarize the recent turn developments concisely and output a narrative summary block (approx {target_words} words).\n"
+    "- Submit your new summary block using the `submit_summary` function tool."
+)
+
+DYNAMIC_SUMMARY_DIRECTIVE_TEMPLATE = (
+    "### State Context\n\n"
+    "Here is the public State:\n```json\n{state_str}\n```\n\n"
+    "Here is the rolling story summary so far (reference only):\n{prev_summary}\n\n"
+    "### Task\n"
+    "Summarize the events of the recent turns (range: \"{range_ref}\").\n"
+    "Call the `submit_summary` function tool with the new incremental summary block."
+)
+
+STATIC_CLEANUP_PROMPT_TEMPLATE = (
+    "[Agent State Cleanup Instruction]\n\n"
+    "### Role & Objectives\n"
+    "- You are a state optimization utility for an RPG agent.\n"
+    "- Your goal is to inspect `state` and `hidden_state` JSON objects and remove any expired, redundant, or unnecessary keys.\n"
+    "- Output your {lang} cleanup code snippet using the `submit_cleanup` function tool."
+)
+
+DYNAMIC_CLEANUP_DIRECTIVE_TEMPLATE = (
+    "### Current State & Context\n\n"
+    "Here is the public State:\n```json\n{state_str}\n```\n\n"
+    "Here is the secret Hidden-State:\n```json\n{hidden_str}\n```\n\n"
+    "Here is the top-level Plan:\n```json\n{plan_str}\n```\n\n"
+    "Here is the rolling story summary so far:\n{summary_str}\n\n"
+    "### Task\n"
+    "Write a {lang} code snippet to delete expired keys or parameters (e.g. `{syntax_example}`).\n"
+    "Call the `submit_cleanup` function tool with the code snippet."
+)

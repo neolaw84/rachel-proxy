@@ -339,3 +339,90 @@ def get_cleanup_prompt(
             lang=lang,
             syntax_example=syntax_example,
         )
+
+
+def get_static_plan_prompt() -> str:
+    """Return static system instruction for plan node."""
+    from rachel.agent.prompt_constants import STATIC_PLAN_PROMPT_TEMPLATE
+    return STATIC_PLAN_PROMPT_TEMPLATE
+
+
+def get_dynamic_plan_directive(
+    prev_plan: list[dict],
+    turns_since_update: str,
+    range_ref: str,
+    state: dict = {},
+    hidden_state: dict = {},
+    summary: str = "",
+) -> str:
+    """Return dynamic directive for plan node."""
+    from rachel.agent.prompt_constants import DYNAMIC_PLAN_DIRECTIVE_TEMPLATE
+    state_str = json.dumps(state, indent=2, ensure_ascii=False) if state is not None else "{}"
+    hidden_str = json.dumps(hidden_state, indent=2, ensure_ascii=False) if hidden_state is not None else "{}"
+    prev_plan_str = json.dumps(prev_plan, indent=2, ensure_ascii=False) if prev_plan is not None else "[]"
+    summary_str = summary or "[No events summarized yet]"
+    return DYNAMIC_PLAN_DIRECTIVE_TEMPLATE.format(
+        state_str=state_str,
+        hidden_str=hidden_str,
+        summary_str=summary_str,
+        prev_plan=prev_plan_str,
+        turns_since_update=turns_since_update,
+        range_ref=range_ref,
+    )
+
+
+def get_static_summary_prompt(target_words: int = 250) -> str:
+    """Return static system instruction for summary node."""
+    from rachel.agent.prompt_constants import STATIC_SUMMARY_PROMPT_TEMPLATE
+    return STATIC_SUMMARY_PROMPT_TEMPLATE.format(target_words=target_words)
+
+
+def get_dynamic_summary_directive(
+    prev_summary: str,
+    range_ref: str,
+    state: dict = {},
+) -> str:
+    """Return dynamic directive for summary node."""
+    from rachel.agent.prompt_constants import DYNAMIC_SUMMARY_DIRECTIVE_TEMPLATE
+    state_str = json.dumps(state, indent=2, ensure_ascii=False) if state is not None else "{}"
+    return DYNAMIC_SUMMARY_DIRECTIVE_TEMPLATE.format(
+        state_str=state_str,
+        prev_summary=prev_summary or "[None]",
+        range_ref=range_ref,
+    )
+
+
+def get_static_cleanup_prompt(engine_name: str = "v8") -> str:
+    """Return static system instruction for cleanup node."""
+    from rachel.agent.prompt_constants import STATIC_CLEANUP_PROMPT_TEMPLATE
+    lang = "JavaScript" if engine_name == "v8" else "Python"
+    return STATIC_CLEANUP_PROMPT_TEMPLATE.format(lang=lang)
+
+
+def get_dynamic_cleanup_directive(
+    state: dict = {},
+    hidden_state: dict = {},
+    plan: list = [],
+    summary: str = "",
+    engine_name: str = "v8",
+) -> str:
+    """Return dynamic directive for cleanup node."""
+    from rachel.agent.prompt_constants import DYNAMIC_CLEANUP_DIRECTIVE_TEMPLATE
+    lang = "JavaScript" if engine_name == "v8" else "Python"
+    syntax_example = (
+        "delete state.temp_buff; delete hidden_state.expired_quest_flag;"
+        if engine_name == "v8"
+        else "state.pop('temp_buff', None)\nhidden_state.pop('expired_quest_flag', None)"
+    )
+    state_str = json.dumps(state, indent=2, ensure_ascii=False) if state is not None else "{}"
+    hidden_str = json.dumps(hidden_state, indent=2, ensure_ascii=False) if hidden_state is not None else "{}"
+    plan_str = json.dumps(plan, indent=2, ensure_ascii=False) if plan is not None else "[]"
+    summary_str = summary or "[No summary available]"
+    return DYNAMIC_CLEANUP_DIRECTIVE_TEMPLATE.format(
+        state_str=state_str,
+        hidden_str=hidden_str,
+        plan_str=plan_str,
+        summary_str=summary_str,
+        lang=lang,
+        syntax_example=syntax_example,
+    )

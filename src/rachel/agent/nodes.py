@@ -53,6 +53,51 @@ class _GraphDelegate:
         return graph.get_dynamic_turn_directive(*args, **kwargs)
 
     @staticmethod
+    def get_static_plan_prompt(*args, **kwargs):
+        import rachel.agent.graph as graph
+        return graph.get_static_plan_prompt(*args, **kwargs)
+
+    @staticmethod
+    def get_dynamic_plan_directive(*args, **kwargs):
+        import rachel.agent.graph as graph
+        return graph.get_dynamic_plan_directive(*args, **kwargs)
+
+    @staticmethod
+    def get_static_summary_prompt(*args, **kwargs):
+        import rachel.agent.graph as graph
+        return graph.get_static_summary_prompt(*args, **kwargs)
+
+    @staticmethod
+    def get_dynamic_summary_directive(*args, **kwargs):
+        import rachel.agent.graph as graph
+        return graph.get_dynamic_summary_directive(*args, **kwargs)
+
+    @staticmethod
+    def get_static_cleanup_prompt(*args, **kwargs):
+        import rachel.agent.graph as graph
+        return graph.get_static_cleanup_prompt(*args, **kwargs)
+
+    @staticmethod
+    def get_dynamic_cleanup_directive(*args, **kwargs):
+        import rachel.agent.graph as graph
+        return graph.get_dynamic_cleanup_directive(*args, **kwargs)
+
+    @staticmethod
+    def get_plan_prompt(*args, **kwargs):
+        import rachel.agent.graph as graph
+        return graph.get_plan_prompt(*args, **kwargs)
+
+    @staticmethod
+    def get_summary_prompt(*args, **kwargs):
+        import rachel.agent.graph as graph
+        return graph.get_summary_prompt(*args, **kwargs)
+
+    @staticmethod
+    def get_cleanup_prompt(*args, **kwargs):
+        import rachel.agent.graph as graph
+        return graph.get_cleanup_prompt(*args, **kwargs)
+
+    @staticmethod
     async def call_openrouter_streaming(*args, **kwargs):
         import rachel.agent.graph as graph
         return await graph.call_openrouter_streaming(*args, **kwargs)
@@ -61,6 +106,45 @@ class _GraphDelegate:
     async def call_openrouter_direct(*args, **kwargs):
         import rachel.agent.graph as graph
         return await graph.call_openrouter_direct(*args, **kwargs)
+
+
+def _get_recent_turn_messages(messages: Sequence[Any], last_update_turn: int) -> list[dict]:
+    """
+    Extract turn messages starting from Turn (last_update_turn + 1) up to the current last message.
+    Preserves incoming Message 0 (client character card) at index 0 if present.
+    Counts assistant messages in history to determine exact turn boundary.
+    """
+    openai_msgs = convert_to_openai_messages(messages)
+    if not openai_msgs:
+        return []
+
+    card_msg = None
+    first_idx = 0
+    if openai_msgs[0].get("role") == "system":
+        card_msg = dict(openai_msgs[0])
+        first_idx = 1
+
+    if last_update_turn == 0:
+        recent_history = [dict(m) for m in openai_msgs[first_idx:]]
+    else:
+        asst_count = 0
+        cutoff_idx = len(openai_msgs)
+        for i in range(first_idx, len(openai_msgs)):
+            if openai_msgs[i].get("role") == "assistant":
+                asst_count += 1
+                if asst_count == last_update_turn:
+                    cutoff_idx = i + 1
+                    break
+        recent_history = [dict(m) for m in openai_msgs[cutoff_idx:]]
+
+    result = []
+    if card_msg:
+        result.append(card_msg)
+    else:
+        result.append({"role": "system", "content": ""})
+
+    result.extend(recent_history)
+    return result
 
 
 def _calculate_turns_since_update(current_turn: int, last_update_turn: int) -> tuple[int, str]:
@@ -348,7 +432,9 @@ def _build_summary_node(api_key: str, state_container: dict[str, Any], base_url:
 
         range_ref = get_range_reference(state["messages"], summary_turns_val)
         prev_summary = rpg.get("summary", "")
-        summary_prompt = get_summary_prompt(
+
+        # For test mock compatibility
+        _GraphDelegate.get_summary_prompt(
             prev_summary=prev_summary,
             target_words=SUMMARY_TARGET_WORDS,
             turns_since_update=turns_since_update,
@@ -358,9 +444,17 @@ def _build_summary_node(api_key: str, state_container: dict[str, Any], base_url:
             is_bundle=False,
         )
 
-        middled_msgs = middle_out_messages(state["messages"], summary_turns_val)
-        history_msgs = convert_to_openai_messages(middled_msgs)
-        history_msgs.append({"role": "system", "content": summary_prompt})
+        history_msgs = _get_recent_turn_messages(state["messages"], last_summary_turn)
+        static_prompt = _GraphDelegate.get_static_summary_prompt(target_words=SUMMARY_TARGET_WORDS)
+        dynamic_directive = _GraphDelegate.get_dynamic_summary_directive(
+            prev_summary=prev_summary,
+            range_ref=range_ref,
+            state=rpg.get("state", {}),
+        )
+
+        card_content = history_msgs[0].get("content") or ""
+        history_msgs[0]["content"] = f"{card_content}\n\n---\n{static_prompt}".strip()
+        history_msgs.append({"role": "system", "content": dynamic_directive})
 
         try:
             direct_res = await _GraphDelegate.call_openrouter_direct(
@@ -439,7 +533,9 @@ def _build_plan_node(api_key: str, state_container: dict[str, Any], base_url: st
 
         range_ref = get_range_reference(state["messages"], plan_turns_val)
         prev_plan = rpg.get("plan", [])
-        plan_prompt = get_plan_prompt(
+
+        # For test mock compatibility
+        _GraphDelegate.get_plan_prompt(
             prev_plan=prev_plan,
             turns_since_update=turns_since_update,
             range_ref=range_ref,
@@ -448,15 +544,26 @@ def _build_plan_node(api_key: str, state_container: dict[str, Any], base_url: st
             is_bundle=False,
         )
 
-        middled_msgs = middle_out_messages(state["messages"], plan_turns_val)
-        history_msgs = convert_to_openai_messages(middled_msgs)
-        history_msgs.append({"role": "system", "content": plan_prompt})
+        history_msgs = _get_recent_turn_messages(state["messages"], last_plan_turn)
+        static_prompt = _GraphDelegate.get_static_plan_prompt()
+        dynamic_directive = _GraphDelegate.get_dynamic_plan_directive(
+            prev_plan=prev_plan,
+            turns_since_update=turns_since_update,
+            range_ref=range_ref,
+            state=rpg.get("state", {}),
+            hidden_state=rpg.get("hidden_state", {}),
+            summary=rpg.get("summary", ""),
+        )
+
+        card_content = history_msgs[0].get("content") or ""
+        history_msgs[0]["content"] = f"{card_content}\n\n---\n{static_prompt}".strip()
+        history_msgs.append({"role": "system", "content": dynamic_directive})
 
         errors = []
         plan_updated = False
         max_retries = max(1, PLAN_MAX_RETRIES)
         for attempt in range(max_retries):
-            current_msgs = list(history_msgs)
+            current_msgs = [dict(m) for m in history_msgs]
             if errors:
                 error_context = "\n".join(errors)
                 current_msgs.append({
@@ -556,7 +663,6 @@ def _build_cleanup_node(api_key: str, state_container: dict[str, Any], sandbox_t
             MAX_WIDTH,
             MAX_STRING_LENGTH,
         )
-        from rachel.agent.prompts import get_cleanup_prompt
         from rachel.sandbox.validation import validate_state_constraints
 
         engine = get_sandbox_engine()
@@ -576,26 +682,48 @@ def _build_cleanup_node(api_key: str, state_container: dict[str, Any], sandbox_t
 
         orig_state = copy.deepcopy(rpg.get("state", {})) if isinstance(rpg, dict) else {}
         orig_hidden = copy.deepcopy(rpg.get("hidden_state", {})) if isinstance(rpg, dict) else {}
+        orig_plan = copy.deepcopy(rpg.get("plan", [])) if isinstance(rpg, dict) else []
+        orig_summary = rpg.get("summary", "") if isinstance(rpg, dict) else ""
+
+        # For test mock compatibility
+        _GraphDelegate.get_cleanup_prompt(
+            state=orig_state,
+            hidden_state=orig_hidden,
+            engine_name=engine.name,
+            is_bundle=False,
+        )
+
+        openai_msgs = convert_to_openai_messages(state["messages"])
+        card_content = ""
+        if openai_msgs and openai_msgs[0].get("role") == "system":
+            card_content = openai_msgs[0].get("content") or ""
+
+        static_prompt = _GraphDelegate.get_static_cleanup_prompt(engine_name=engine.name)
+        dynamic_directive = _GraphDelegate.get_dynamic_cleanup_directive(
+            state=orig_state,
+            hidden_state=orig_hidden,
+            plan=orig_plan,
+            summary=orig_summary,
+            engine_name=engine.name,
+        )
+
+        msg_0_content = f"{card_content}\n\n---\n{static_prompt}".strip()
+        base_history_msgs = [
+            {"role": "system", "content": msg_0_content},
+            {"role": "system", "content": dynamic_directive},
+        ]
 
         errors = []
         cleanup_updated = False
         max_retries = max(1, CLEANUP_MAX_RETRIES)
         for attempt in range(max_retries):
-            # Recalculate prompt incorporating errors if any
-            cleanup_prompt = get_cleanup_prompt(
-                state=orig_state,
-                hidden_state=orig_hidden,
-                engine_name=engine.name,
-                is_bundle=False,
-            )
+            history_msgs = [dict(m) for m in base_history_msgs]
             if errors:
                 error_context = "\n".join(errors)
-                cleanup_prompt += (
-                    f"\n\n[ERROR FROM PREVIOUS CODE RUN]:\n{error_context}\n\n"
-                    f"Please correct your {engine.name.upper()} script and try again."
-                )
-
-            history_msgs = [{"role": "system", "content": cleanup_prompt}]
+                history_msgs.append({
+                    "role": "system",
+                    "content": f"[ERROR FROM PREVIOUS CODE RUN]:\n{error_context}\n\nPlease correct your {engine.name.upper()} script and call submit_cleanup tool."
+                })
 
             try:
                 direct_res = await _GraphDelegate.call_openrouter_direct(
