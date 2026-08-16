@@ -290,12 +290,21 @@ def test_compute_turn_key_mocked_time():
     assert key1 != key2
 
 
-def test_dashboard_and_static_assets(client):
+def test_dashboard_and_static_assets(client, tmp_path):
     """Verify index.html dashboard and compiled static assets serving."""
-    resp = client.get("/")
-    assert resp.status_code == 200
-    assert "RACHEL Proxy" in resp.text
-    assert "<script type=\"module\"" in resp.text or "/assets/" in resp.text
+    fake_index = tmp_path / "index.html"
+    fake_index.write_text("<html><head><title>RACHEL Proxy</title></head><body><script type=\"module\" src=\"/assets/index.js\"></script></body></html>")
+
+    with patch("rachel.routes.system._STATIC_INDEX", str(fake_index)):
+        resp = client.get("/")
+        assert resp.status_code == 200
+        assert "RACHEL Proxy" in resp.text
+        assert "<script type=\"module\"" in resp.text or "/assets/" in resp.text
+
+    with patch("rachel.routes.system._STATIC_INDEX", str(tmp_path / "missing.html")):
+        resp = client.get("/")
+        assert resp.status_code == 500
+        assert "Dashboard not found" in resp.text
 
 
 @patch("rachel.routes.completions.run_agent", new_callable=AsyncMock)
