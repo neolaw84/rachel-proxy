@@ -206,7 +206,15 @@ async def test_run_agent_session_info_persistence():
             yield 'data: {"choices":[{"delta":{"content":"agent response"}}]}'
             yield 'data: [DONE]'
 
-    with patch("httpx.AsyncClient.stream", side_effect=lambda *a, **kw: DummyStreamResponse()):
+    class MockPostResponse:
+        def __init__(self, status_code=200):
+            self.status_code = status_code
+            self.text = "{}"
+        def json(self):
+            return {"choices": [{"message": {"content": "ok"}}]}
+
+    with patch("httpx.AsyncClient.stream", side_effect=lambda *a, **kw: DummyStreamResponse()), \
+         patch("httpx.AsyncClient.post", return_value=MockPostResponse()):
         res = await run_agent(
             messages=[{"role": "user", "content": "hello"}],
             before_state={},

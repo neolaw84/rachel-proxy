@@ -25,11 +25,11 @@ async def test_tool_node_handles_pydantic_validation_error(sample_tools):
     """Test that missing required fields in a tool call return a ToolMessage error output rather than crashing."""
     tool_node = _build_tool_node(sample_tools)
     
-    # update_plan_status requires an 'updates' parameter. Passing empty args dict {} causes validation error.
+    # execute_code_sandbox requires a 'code' parameter. Passing empty args dict {} causes validation error.
     ai_msg = AIMessage(
         content="",
         tool_calls=[{
-            "name": "update_plan_status",
+            "name": "execute_code_sandbox",
             "args": {},
             "id": "call_bad_args_1",
             "type": "tool_call"
@@ -50,7 +50,7 @@ async def test_tool_node_handles_pydantic_validation_error(sample_tools):
     msg = res["messages"][0]
     assert isinstance(msg, ToolMessage)
     assert msg.tool_call_id == "call_bad_args_1"
-    assert msg.name == "update_plan_status"
+    assert msg.name == "execute_code_sandbox"
     assert "--- Tool Execution Exception ---" in msg.content
     assert "ValidationError" in msg.content or "missing" in msg.content or "Field required" in msg.content
 
@@ -64,10 +64,10 @@ async def test_tool_node_handles_invalid_json_decode_error(sample_tools):
     ai_msg = AIMessage(
         content="",
         tool_calls=[{
-            "name": "update_plan_status",
+            "name": "execute_code_sandbox",
             "args": {
                 "_invalid_json_error": "JSONDecodeError: Expecting property name enclosed in double quotes",
-                "_raw_arguments": "{updates: [unquoted]}"
+                "_raw_arguments": "{code: console.log('hello')}"
             },
             "id": "call_bad_json_1",
             "type": "tool_call"
@@ -87,7 +87,7 @@ async def test_tool_node_handles_invalid_json_decode_error(sample_tools):
     assert msg.tool_call_id == "call_bad_json_1"
     assert "--- Tool Execution Exception ---" in msg.content
     assert "JSONDecodeError" in msg.content
-    assert "Raw arguments: '{updates: [unquoted]}'" in msg.content
+    assert "Raw arguments: '{code: console.log('hello')}'" in msg.content
 
 
 @pytest.mark.asyncio

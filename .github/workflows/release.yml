@@ -2,12 +2,40 @@ name: Release & Package Build
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
+  pull_request:
+    branches:
+      - main
 
 jobs:
+  test:
+    name: Run Tests & Coverage Gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run Pytest with Coverage
+        run: |
+          pytest --cov=src --cov-fail-under=75
+
   build-desktop-packages:
     name: Build Desktop Release Packages
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -40,6 +68,8 @@ jobs:
 
   publish-pypi:
     name: Build & Publish PyPI Package
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: read

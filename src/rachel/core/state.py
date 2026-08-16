@@ -48,19 +48,22 @@ def _validate_and_normalize_import(data: dict[str, Any]) -> dict[str, dict[str, 
             raise ValueError(f"Invalid turn key '{turn_key}': must be a 24-character string.")
         if not isinstance(turn_info, dict):
             raise ValueError(f"Value for turn '{turn_key}' must be a JSON object.")
-        if "before" not in turn_info or "after" not in turn_info:
-            raise ValueError(f"Turn '{turn_key}' must contain both 'before' and 'after' keys.")
+        if any(k not in turn_info for k in ("meta-data", "before", "after")):
+            raise ValueError(f"Turn '{turn_key}' must contain 'meta-data', 'before', and 'after' keys.")
+        meta_val = turn_info["meta-data"]
         before_val = turn_info["before"]
         after_val = turn_info["after"]
+        if not isinstance(meta_val, dict):
+            raise ValueError(f"The 'meta-data' property of turn '{turn_key}' must be a JSON object.")
         if not isinstance(before_val, dict) or not isinstance(after_val, dict):
             raise ValueError(f"The 'before' and 'after' properties of turn '{turn_key}' must be JSON objects.")
 
         validated[turn_key] = {
+            "meta-data": meta_val,
             "before": _migrate_state(before_val),
             "after": _migrate_state(after_val),
         }
     return validated
-
 
 
 class BaseSessionStorage(abc.ABC):
@@ -81,8 +84,9 @@ class BaseSessionStorage(abc.ABC):
         turn_key: str,
         before_state: dict[str, Any],
         after_state: dict[str, Any],
+        meta_data: dict[str, Any] | None = None,
     ) -> None:
-        """Persist a completed turn's before/after state, pruning if needed (LRU limit)."""
+        """Persist a completed turn's before/after state and metadata, pruning if needed (LRU limit)."""
         pass
 
     @abc.abstractmethod
@@ -102,8 +106,18 @@ class BaseSessionStorage(abc.ABC):
 
     @abc.abstractmethod
     def get_all_turns(self) -> dict[str, dict[str, Any]]:
-        """Return the raw internal dictionary of all turns (turn_key -> before/after)."""
+        """Return the raw internal dictionary of all turns (turn_key -> meta-data/before/after)."""
         pass
+
+    def get_turn_metadata(self, turn_key: str) -> dict[str, Any] | None:
+        """Return the metadata for a given turn key, if found in storage."""
+        turns = self.get_all_turns()
+        if turn_key in turns:
+            val = turns[turn_key]
+            if "meta-data" not in val:
+                raise KeyError(f"meta-data not found in turn key '{turn_key}'")
+            return val["meta-data"]
+        return None
 
     @classmethod
     @abc.abstractmethod
@@ -168,10 +182,12 @@ class FileSessionStorage(BaseSessionStorage):
         turn_key: str,
         before_state: dict[str, Any],
         after_state: dict[str, Any],
+        meta_data: dict[str, Any] | None = None,
     ) -> None:
         if turn_key in self._data:
             del self._data[turn_key]
         self._data[turn_key] = {
+            "meta-data": meta_data or {},
             "before": _migrate_state(before_state),
             "after": _migrate_state(after_state),
         }
@@ -265,6 +281,7 @@ class RelationalSessionStorage(BaseSessionStorage):
         turn_key: str,
         before_state: dict[str, Any],
         after_state: dict[str, Any],
+        meta_data: dict[str, Any] | None = None,
     ) -> None:
         with self.SessionMaker() as session:
             record = self._load_session_record(session)
@@ -280,6 +297,7 @@ class RelationalSessionStorage(BaseSessionStorage):
             if turn_key in turns_data:
                 del turns_data[turn_key]
             turns_data[turn_key] = {
+                "meta-data": meta_data or {},
                 "before": _migrate_state(before_state),
                 "after": _migrate_state(after_state),
             }
@@ -327,6 +345,7 @@ class RelationalSessionStorage(BaseSessionStorage):
             turns = json.loads(record.turns_data)
             return {
                 tk: {
+                    "meta-data": tv.get("meta-data", {}),
                     "before": _migrate_state(tv.get("before", {})),
                     "after": _migrate_state(tv.get("after", {})),
                 }
@@ -384,41 +403,5 @@ def list_all_sessions(storage_dir: Any = None, tenant_id: str = "local") -> list
     return FileSessionStorage.list_sessions(storage_dir, tenant_id=tenant_id)
 
 
-class SessionStateStore(BaseSessionStorage):
-    """Compatibility wrapper delegator that directs operations to the configured engine."""
 
-    def __init__(self, session_id: str, storage_dir: Any = None, max_size: int = 8) -> None:
-        super().__init__(session_id, max_size)
-        self._delegate = get_session_storage(session_id, max_size, storage_dir)
-
-    def get_before_state(self, prev_turn_key: str | None) -> dict[str, Any]:
-        return self._delegate.get_before_state(prev_turn_key)
-
-    def save_turn(
-        self,
-        turn_key: str,
-        before_state: dict[str, Any],
-        after_state: dict[str, Any],
-    ) -> None:
-        self._delegate.save_turn(turn_key, before_state, after_state)
-
-    def reset(self) -> None:
-        self._delegate.reset()
-
-    def delete(self) -> None:
-        self._delegate.delete()
-
-    def import_data(self, data: dict[str, Any]) -> None:
-        self._delegate.import_data(data)
-
-    def get_all_turns(self) -> dict[str, dict[str, Any]]:
-        return self._delegate.get_all_turns()
-
-    @property
-    def _data(self) -> dict[str, dict[str, Any]]:
-        return self._delegate.get_all_turns()
-
-    @classmethod
-    def list_sessions(cls, storage_dir: Any = None) -> list[str]:
-        return list_all_sessions(storage_dir)
 

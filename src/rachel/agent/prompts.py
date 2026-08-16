@@ -4,24 +4,60 @@ import json
 import re
 from typing import Any, Sequence
 from langchain_core.messages import BaseMessage, AIMessage, SystemMessage
-from rachel.config import SUMMARY_TARGET_WORDS
 from rachel.agent.prompt_constants import (
-    UPDATE_PLAN_TASK_TEMPLATE,
-    APPEND_SUMMARY_TASK_TEMPLATE,
-    CLEANUP_TASK_TEMPLATE,
     PROGRESS_STORY_TASK,
-    STATE_SECTION_4_ELEMENT,
-    STATE_SECTION_BASIC,
+    STATE_SECTION_TEMPLATE,
     SANDBOX_INFO_V8,
-    SANDBOX_INFO_PYTHON,
-    SYSTEM_INSTRUCTION_TEMPLATE,
-    SUMMARY_PROMPT_BUNDLE,
-    SUMMARY_PROMPT_STANDALONE,
-    PLAN_PROMPT_BUNDLE,
-    PLAN_PROMPT_STANDALONE,
-    CLEANUP_PROMPT_BUNDLE,
-    CLEANUP_PROMPT_STANDALONE,
+    STATE_CONSTRAINTS_INFO_TEMPLATE,
+    STATIC_SYSTEM_INSTRUCTION_TEMPLATE,
+    DYNAMIC_TURN_DIRECTIVE_TEMPLATE,
+    DYNAMIC_PLAN_DIRECTIVE_TEMPLATE,
+    DYNAMIC_SUMMARY_DIRECTIVE_TEMPLATE,
+    DYNAMIC_CLEANUP_DIRECTIVE_TEMPLATE,
 )
+
+
+
+class PromptBuilder:
+    """Builder class responsible for constructing dynamic and static prompts with configurable constraints."""
+
+    def __init__(
+        self,
+        max_string_length: int | None = None,
+        max_width: int | None = None,
+        max_depth: int | None = None,
+        summary_target_words: int | None = None,
+    ):
+        self._max_string_length = max_string_length
+        self._max_width = max_width
+        self._max_depth = max_depth
+        self._summary_target_words = summary_target_words
+
+    def _resolve_config(self):
+        import rachel.config as config
+        msl = self._max_string_length if self._max_string_length is not None else config.MAX_STRING_LENGTH
+        mw = self._max_width if self._max_width is not None else config.MAX_WIDTH
+        md = self._max_depth if self._max_depth is not None else config.MAX_DEPTH
+        stw = self._summary_target_words if self._summary_target_words is not None else config.SUMMARY_TARGET_WORDS
+        return msl, mw, md, stw
+
+    def get_static_system_prompt(self, sandbox_timeout: float = 2.0, engine_name: str = "v8") -> str:
+        msl, mw, md, stw = self._resolve_config()
+        state_constraints_info = STATE_CONSTRAINTS_INFO_TEMPLATE.format(
+            max_string_length=msl,
+            max_width=mw,
+            max_depth=md,
+        )
+        lang = "JavaScript" if engine_name == "v8" else "Python"
+        return STATIC_SYSTEM_INSTRUCTION_TEMPLATE.format(
+            target_words=stw,
+            lang=lang,
+            sandbox_info=SANDBOX_INFO_V8,
+            state_constraints_info=state_constraints_info,
+            sandbox_timeout=sandbox_timeout,
+        )
+
+
 
 def get_message_repr(message: BaseMessage, max_len: int = 150) -> str:
     """Format a single message as a clean single line for representation."""
@@ -53,6 +89,7 @@ def get_range_reference(messages: Sequence[BaseMessage], turns_since_update: int
         return start_repr
     return f"{start_repr} ... {end_repr}"
 
+# TODO: Clean up / re-evaluate middle_out_messages in next cleanup session (currently unwired in agent graph)
 def middle_out_messages(
     messages: Sequence[BaseMessage],
     turns_since_update: int,
@@ -86,190 +123,80 @@ def middle_out_messages(
     result = [condensed_msg] + list(messages[prefix_len:])
     return result
 
-def get_system_instruction(
+def get_static_system_prompt(
+    sandbox_timeout: float = 2.0,
+    max_string_length: int | None = None,
+    max_width: int | None = None,
+    max_depth: int | None = None,
+    engine_name: str = "v8",
+) -> str:
+    """Return the invariant static system instruction prompt for Message 0."""
+    builder = PromptBuilder(
+        max_string_length=max_string_length,
+        max_width=max_width,
+        max_depth=max_depth,
+    )
+    return builder.get_static_system_prompt(sandbox_timeout=sandbox_timeout, engine_name=engine_name)
+
+
+
+def get_dynamic_turn_directive(
     rpg_state: Any,
-    sandbox_timeout: float,
     max_iterations: int,
     current_iteration: int,
     rem_iterations: int,
     messages: Sequence[BaseMessage] = (),
-    engine_name: str = "v8",
-    bundle_plan_fired: bool = False,
-    bundle_summary_fired: bool = False,
-    bundle_cleanup_fired: bool = False,
     turn_number: int = 1,
 ) -> str:
-    """Return the dynamic system instruction for the LLM node."""
-    # 1. Resolve '? turns ago' values from hidden_state
-    hidden = {}
-    if isinstance(rpg_state, dict) and "hidden_state" in rpg_state and isinstance(rpg_state["hidden_state"], dict):
-        hidden = rpg_state["hidden_state"]
-
-    last_plan_turn = hidden.get("last_plan_turn", 0)
-    if last_plan_turn == 0:
-        plan_turns_val = turn_number
-        plan_turns_ago = f"{turn_number} turns ago (at the start of the game)"
-    else:
-        plan_turns_val = turn_number - last_plan_turn
-        plan_turns_ago = f"{plan_turns_val} turn ago" if plan_turns_val == 1 else f"{plan_turns_val} turns ago"
-
-    last_summary_turn = hidden.get("last_summary_turn", 0)
-    if last_summary_turn == 0:
-        summary_turns_val = turn_number
-        summary_turns_ago = f"{turn_number} turns ago (at the start of the game)"
-    else:
-        summary_turns_val = turn_number - last_summary_turn
-        summary_turns_ago = f"{summary_turns_val} turn ago" if summary_turns_val == 1 else f"{summary_turns_val} turns ago"
-
-    last_cleanup_turn = hidden.get("last_cleanup_turn", 0)
-    if last_cleanup_turn == 0:
-        cleanup_turns_ago = f"{turn_number} turns ago (at the start of the game)"
-    else:
-        cleanup_turns_val = turn_number - last_cleanup_turn
-        cleanup_turns_ago = f"{cleanup_turns_val} turn ago" if cleanup_turns_val == 1 else f"{cleanup_turns_val} turns ago"
-
-    # 2. Build tasks list
-    tasks = []
-    if bundle_plan_fired:
-        tasks.append(
-            UPDATE_PLAN_TASK_TEMPLATE.format(plan_turns_ago=plan_turns_ago)
-        )
-    if bundle_summary_fired:
-        tasks.append(
-            APPEND_SUMMARY_TASK_TEMPLATE.format(summary_turns_ago=summary_turns_ago)
-        )
-    if bundle_cleanup_fired:
-        tasks.append(
-            CLEANUP_TASK_TEMPLATE.format(cleanup_turns_ago=cleanup_turns_ago)
-        )
-    tasks.append(PROGRESS_STORY_TASK)
-
+    """Return the dynamic turn directive block appended to the last user message."""
+    # 1. Build tasks list
+    tasks = [PROGRESS_STORY_TASK]
     total_tasks = len(tasks)
-    tasks_formatted = []
-    for idx, task_desc in enumerate(tasks):
-        tasks_formatted.append(f"- Task {idx + 1} of {total_tasks}: {task_desc}")
+    tasks_formatted = [f"- Task 1 of 1: {PROGRESS_STORY_TASK}"]
     tasks_block = "\n".join(tasks_formatted)
-    task_word = "task" if total_tasks == 1 else "tasks"
+    task_word = "task"
 
-    # 3. Format state sections
-    is_4_element = isinstance(rpg_state, dict) and all(k in rpg_state for k in ("state", "plan", "summary", "hidden_state"))
-    if is_4_element:
-        state_section = STATE_SECTION_4_ELEMENT.format(
-            state_json=json.dumps(rpg_state['state'], indent=2, ensure_ascii=False),
-            hidden_state_json=json.dumps(rpg_state['hidden_state'], indent=2, ensure_ascii=False),
-            summary=rpg_state['summary'] or '[No events summarized yet]',
-            plan_json=json.dumps(rpg_state['plan'], indent=2, ensure_ascii=False),
-        )
-    else:
-        state_section = STATE_SECTION_BASIC.format(
-            state_json=json.dumps(rpg_state, indent=2, ensure_ascii=False)
-        )
-
-    # 4. Format sandbox constraints
-    if engine_name == "v8":
-        sandbox_info = SANDBOX_INFO_V8
-    else:
-        sandbox_info = SANDBOX_INFO_PYTHON
-
-    # 5. Format H2 blocks if triggered
-    h2_instruction_blocks = ""
-    if bundle_plan_fired:
-        range_ref = get_range_reference(messages, plan_turns_val)
-        plan_text = get_plan_prompt(
-            prev_plan=rpg_state.get("plan", []) if isinstance(rpg_state, dict) else [],
-            turns_since_update=plan_turns_ago,
-            range_ref=range_ref,
-            is_bundle=True,
-        )
-        h2_instruction_blocks += f"\n\n## Updating Plan\n{plan_text}"
-    if bundle_summary_fired:
-        range_ref = get_range_reference(messages, summary_turns_val)
-        summary_text = get_summary_prompt(
-            prev_summary=rpg_state.get("summary", "") if isinstance(rpg_state, dict) else "",
-            target_words=SUMMARY_TARGET_WORDS,
-            turns_since_update=summary_turns_ago,
-            range_ref=range_ref,
-            is_bundle=True,
-        )
-        h2_instruction_blocks += f"\n\n## Creating Summary to Append\n{summary_text}"
-    if bundle_cleanup_fired:
-        cleanup_text = get_cleanup_prompt(
-            state=rpg_state.get("state", {}) if isinstance(rpg_state, dict) else {},
-            hidden_state=rpg_state.get("hidden_state", {}) if isinstance(rpg_state, dict) else {},
-            engine_name=engine_name,
-            is_bundle=True,
-        )
-        h2_instruction_blocks += f"\n\n## Storage Cleanup Required\n{cleanup_text}"
-
-    import rachel.config as config
-
-    # Dynamic Summary & Plan Accessibility guidelines
-    guidelines_list = [
-        "- **Plan Status Updates**: Use the `update_plan_status` tool to update the statuses of checklist items on the **Plan**."
-    ]
-
-    if bundle_plan_fired:
-        guidelines_list.append(
-            "- **Narrative Plan Updates**: Use the `update_plan` tool to replace the **Plan** entirely (a list of dictionaries)."
-        )
-
-    if bundle_summary_fired:
-        guidelines_list.append(
-            "- **Story Summary Updates**: Use the `append_summary` tool to modify the \"Active Story Summary (Rolling Summary)\"."
-        )
-
-    summary_plan_access_guidelines = "\n".join(guidelines_list) + "\n"
-
-    state_constraints_info = (
-        f"- **State Cleanliness Constraints**:\n"
-        f"  - Limit string values in `state` or `hidden_state` to a maximum of {config.MAX_STRING_LENGTH} characters.\n"
-        f"  - Limit object/dictionary/list width to a maximum of {config.MAX_WIDTH} keys or elements.\n"
-        f"  - Limit object nesting depth to a maximum of {config.MAX_DEPTH} levels.\n"
-        f"  - Sandbox validation will programmatically enforce these constraints and discard any violating updates.\n"
+    # 2. Format state sections
+    rpg_dict = rpg_state if isinstance(rpg_state, dict) else {}
+    state_section = STATE_SECTION_TEMPLATE.format(
+        state_json=json.dumps(rpg_dict.get("state", {}), indent=2, ensure_ascii=False),
+        hidden_state_json=json.dumps(rpg_dict.get("hidden_state", {}), indent=2, ensure_ascii=False),
+        summary=rpg_dict.get("summary") or "[No events summarized yet]",
+        plan_json=json.dumps(rpg_dict.get("plan", []), indent=2, ensure_ascii=False),
     )
 
-    return SYSTEM_INSTRUCTION_TEMPLATE.format(
+
+    return DYNAMIC_TURN_DIRECTIVE_TEMPLATE.format(
         total_tasks=total_tasks,
         task_word=task_word,
         tasks_block=tasks_block,
         state_section=state_section,
-        sandbox_info=sandbox_info,
-        summary_plan_access_guidelines=summary_plan_access_guidelines,
-        state_constraints_info=state_constraints_info,
-        sandbox_timeout=sandbox_timeout,
         max_iterations=max_iterations,
         current_iteration=current_iteration,
         rem_iterations=rem_iterations,
-        h2_instruction_blocks=h2_instruction_blocks,
     )
+
 
 def get_summary_prompt(
     prev_summary: str,
-    target_words: int,
-    turns_since_update: str,
-    range_ref: str,
+    target_words: int | None = None,
+    turns_since_update: str = "",
+    range_ref: str = "",
     state: dict = {},
     hidden_state: dict = {},
-    is_bundle: bool = False,
+    start_turn: int | str = 1,
+    end_turn: int | str = 1,
 ) -> str:
     """Return the prompt for the narrative summarizer."""
-    if is_bundle:
-        return SUMMARY_PROMPT_BUNDLE.format(
-            turns_since_update=turns_since_update,
-            range_ref=range_ref,
-            target_words=target_words,
-        )
-    else:
-        state_str = json.dumps(state, indent=2, ensure_ascii=False) if state is not None else "{}"
-        hidden_str = json.dumps(hidden_state, indent=2, ensure_ascii=False) if hidden_state is not None else "{}"
-        return SUMMARY_PROMPT_STANDALONE.format(
-            state_str=state_str,
-            hidden_str=hidden_str,
-            prev_summary=prev_summary or '[None]',
-            target_words=target_words,
-            turns_since_update=turns_since_update,
-            range_ref=range_ref,
-        )
+    from rachel.agent.prompt_constants import DYNAMIC_SUMMARY_DIRECTIVE_TEMPLATE
+    return DYNAMIC_SUMMARY_DIRECTIVE_TEMPLATE.format(
+        state_str=json.dumps(state, indent=2, ensure_ascii=False) if state is not None else "{}",
+        prev_summary=prev_summary or '[None]',
+        range_ref=range_ref,
+        start_turn=start_turn,
+        end_turn=end_turn,
+    )
+
 
 def get_plan_prompt(
     prev_plan: list[dict],
@@ -277,47 +204,124 @@ def get_plan_prompt(
     range_ref: str,
     state: dict = {},
     hidden_state: dict = {},
-    is_bundle: bool = False,
+    summary: str = "",
+    summary_up_to_turn: int | str = 0,
+    start_turn: int | str = 1,
+    end_turn: int | str = 1,
 ) -> str:
-    """Return the prompt for the story planner and NPC coordinator."""
-    if is_bundle:
-        return PLAN_PROMPT_BUNDLE.format(
-            turns_since_update=turns_since_update,
-            range_ref=range_ref,
-        )
-    else:
-        state_str = json.dumps(state, indent=2, ensure_ascii=False) if state is not None else "{}"
-        hidden_str = json.dumps(hidden_state, indent=2, ensure_ascii=False) if hidden_state is not None else "{}"
-        return PLAN_PROMPT_STANDALONE.format(
-            state_str=state_str,
-            hidden_str=hidden_str,
-            prev_plan=json.dumps(prev_plan, indent=2, ensure_ascii=False),
-            turns_since_update=turns_since_update,
-            range_ref=range_ref,
-        )
+    """Return the prompt for the story planner."""
+    from rachel.agent.prompt_constants import DYNAMIC_PLAN_DIRECTIVE_TEMPLATE
+    return DYNAMIC_PLAN_DIRECTIVE_TEMPLATE.format(
+        state_str=json.dumps(state, indent=2, ensure_ascii=False) if state is not None else "{}",
+        hidden_str=json.dumps(hidden_state, indent=2, ensure_ascii=False) if hidden_state is not None else "{}",
+        summary_str=summary or "[No events summarized yet]",
+        summary_up_to_turn=summary_up_to_turn,
+        prev_plan=json.dumps(prev_plan, indent=2, ensure_ascii=False) if prev_plan is not None else "[]",
+        turns_since_update=turns_since_update,
+        range_ref=range_ref,
+        start_turn=start_turn,
+        end_turn=end_turn,
+    )
 
 
 def get_cleanup_prompt(
     state: dict = {},
     hidden_state: dict = {},
     engine_name: str = "v8",
-    is_bundle: bool = False,
 ) -> str:
     """Return the prompt for the storage cleanup task/node."""
+    from rachel.agent.prompt_constants import DYNAMIC_CLEANUP_DIRECTIVE_TEMPLATE
     lang = "JavaScript" if engine_name == "v8" else "Python"
     syntax_example = (
         "delete state.temp_buff; delete hidden_state.expired_quest_flag;"
         if engine_name == "v8"
         else "state.pop('temp_buff', None)\nhidden_state.pop('expired_quest_flag', None)"
     )
-    if is_bundle:
-        return CLEANUP_PROMPT_BUNDLE
-    else:
-        state_str = json.dumps(state, indent=2, ensure_ascii=False) if state is not None else "{}"
-        hidden_str = json.dumps(hidden_state, indent=2, ensure_ascii=False) if hidden_state is not None else "{}"
-        return CLEANUP_PROMPT_STANDALONE.format(
-            state_str=state_str,
-            hidden_str=hidden_str,
-            lang=lang,
-            syntax_example=syntax_example,
-        )
+    return DYNAMIC_CLEANUP_DIRECTIVE_TEMPLATE.format(
+        state_str=json.dumps(state, indent=2, ensure_ascii=False) if state is not None else "{}",
+        hidden_str=json.dumps(hidden_state, indent=2, ensure_ascii=False) if hidden_state is not None else "{}",
+        plan_str="[]",
+        summary_str="[No summary available]",
+        lang=lang,
+        syntax_example=syntax_example,
+    )
+
+
+def get_dynamic_plan_directive(
+    prev_plan: list[dict],
+    turns_since_update: str,
+    range_ref: str,
+    state: dict = {},
+    hidden_state: dict = {},
+    summary: str = "",
+    summary_up_to_turn: int | str = 0,
+    start_turn: int | str = 1,
+    end_turn: int | str = 1,
+) -> str:
+    """Return dynamic directive for plan node."""
+    from rachel.agent.prompt_constants import DYNAMIC_PLAN_DIRECTIVE_TEMPLATE
+    state_str = json.dumps(state, indent=2, ensure_ascii=False) if state is not None else "{}"
+    hidden_str = json.dumps(hidden_state, indent=2, ensure_ascii=False) if hidden_state is not None else "{}"
+    prev_plan_str = json.dumps(prev_plan, indent=2, ensure_ascii=False) if prev_plan is not None else "[]"
+    summary_str = summary or "[No events summarized yet]"
+    return DYNAMIC_PLAN_DIRECTIVE_TEMPLATE.format(
+        state_str=state_str,
+        hidden_str=hidden_str,
+        summary_str=summary_str,
+        summary_up_to_turn=summary_up_to_turn,
+        prev_plan=prev_plan_str,
+        turns_since_update=turns_since_update,
+        range_ref=range_ref,
+        start_turn=start_turn,
+        end_turn=end_turn,
+    )
+
+
+def get_dynamic_summary_directive(
+    prev_summary: str,
+    range_ref: str,
+    state: dict = {},
+    start_turn: int | str = 1,
+    end_turn: int | str = 1,
+) -> str:
+    """Return dynamic directive for summary node."""
+    from rachel.agent.prompt_constants import DYNAMIC_SUMMARY_DIRECTIVE_TEMPLATE
+    state_str = json.dumps(state, indent=2, ensure_ascii=False) if state is not None else "{}"
+    return DYNAMIC_SUMMARY_DIRECTIVE_TEMPLATE.format(
+        state_str=state_str,
+        prev_summary=prev_summary or "[None]",
+        range_ref=range_ref,
+        start_turn=start_turn,
+        end_turn=end_turn,
+    )
+
+
+
+
+def get_dynamic_cleanup_directive(
+    state: dict = {},
+    hidden_state: dict = {},
+    plan: list = [],
+    summary: str = "",
+    engine_name: str = "v8",
+) -> str:
+    """Return dynamic directive for cleanup node."""
+    from rachel.agent.prompt_constants import DYNAMIC_CLEANUP_DIRECTIVE_TEMPLATE
+    lang = "JavaScript" if engine_name == "v8" else "Python"
+    syntax_example = (
+        "delete state.temp_buff; delete hidden_state.expired_quest_flag;"
+        if engine_name == "v8"
+        else "state.pop('temp_buff', None)\nhidden_state.pop('expired_quest_flag', None)"
+    )
+    state_str = json.dumps(state, indent=2, ensure_ascii=False) if state is not None else "{}"
+    hidden_str = json.dumps(hidden_state, indent=2, ensure_ascii=False) if hidden_state is not None else "{}"
+    plan_str = json.dumps(plan, indent=2, ensure_ascii=False) if plan is not None else "[]"
+    summary_str = summary or "[No summary available]"
+    return DYNAMIC_CLEANUP_DIRECTIVE_TEMPLATE.format(
+        state_str=state_str,
+        hidden_str=hidden_str,
+        plan_str=plan_str,
+        summary_str=summary_str,
+        lang=lang,
+        syntax_example=syntax_example,
+    )

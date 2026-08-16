@@ -20,7 +20,7 @@ These settings control how the proxy stores the memory, inventory, and stats for
 ---
 
 ## 🧪 Section 2: Sandbox Executions (`sandbox`)
-These settings manage the calculations engine that runs game rules, dice rules, and attribute updates.
+These settings manage the calculations engine that runs game rules, dice rules, and attribute updates. **Note:** Sandbox execution is standardized entirely on the **V8 JavaScript engine**; the Python execution path is deprecated.
 
 ### `timeout_seconds`
 * **Type:** Decimal Number
@@ -76,10 +76,9 @@ Settings for the narrative planner node that updates your story roadmap checklis
   * `"disabled"`: The planner is never run.
 * **`interval_turns`**: Integer. Trigger frequency if `trigger_type` is periodic (default `10` turns).
 * **`trigger_probability`**: Decimal. Trigger chance if `trigger_type` is probabilistic (default `0.10` or 10%).
-* **`bundle_llm`**: Boolean (`true`/`false`). Whether to bundle the update with the main roleplay call.
-  * `true` (default): Updates are done inline using main GM tool calls (most cost-efficient).
-  * `false`: Updates are executed in a separate, isolated graph node using the planner's own LLM settings.
-* **`llm.model`**: Text. The model to use for the planner if `bundle_llm` is `false` (default `"google/gemini-3.5-flash"`).
+* **`initial_num_msgs_to_include`**: Integer. Number of initial non-system messages (after Message 0) preserved at the prefix of the outgoing messages stream (default `4`).
+* **`bundle_llm`**: **Deprecated/Removed**. All updates are now executed concurrently and synchronously prior to the narrative step using the node's own LLM settings (corresponding to `bundle_llm = false` behavior).
+* **`llm.model`**: Text. The model to use for the planner (default `"google/gemini-3.5-flash"`).
 * **`llm.base_url`**: Text. Completion URL override for the planner model.
 * **`llm.include_reasoning`**: Boolean (`true`/`false`). Enable reasoning support for models that support it.
 * **`llm.temperature`**: Decimal. Model sampling temperature (default `0.2` for logical, factual checklists).
@@ -93,11 +92,11 @@ Settings for the summary node that compiles the rolling story recap:
   * `"disabled"`: Summarization is never run.
 * **`interval_turns`**: Integer. Trigger frequency if `trigger_type` is periodic (default `10` turns).
 * **`trigger_probability`**: Decimal. Trigger chance if `trigger_type` is probabilistic (default `0.10` or 10%).
-* **`bundle_llm`**: Boolean (`true`/`false`). Whether to bundle the update with the main roleplay call.
-  * `true` (default): Updates are done inline using main GM tool calls (most cost-efficient).
-  * `false`: Updates are executed in a separate, isolated graph node using the summarizer's own LLM settings.
+* **`initial_num_msgs_to_include`**: Integer. Number of initial non-system messages (after Message 0) preserved at the prefix of the outgoing messages stream (default `4`).
+* **`bundle_llm`**: **Deprecated/Removed**. All updates are now executed concurrently and synchronously prior to the narrative step using the node's own LLM settings (corresponding to `bundle_llm = false` behavior).
 * **`summary_target_words`**: Integer. Target word length for the summary block (default `200` words).
-* **`llm.model`**: Text. The model to use for the summarizer if `bundle_llm` is `false` (default `"google/gemini-3.5-flash"`).
+* **`llm.model`**: Text. The model to use for the summarizer (default `"google/gemini-3.5-flash"`).
 * **`llm.base_url`**: Text. Completion URL override for the summarizer model.
 * **`llm.include_reasoning`**: Boolean (`true`/`false`). Enable reasoning support.
 * **`llm.temperature`**: Decimal. Model sampling temperature (default `0.2`).
+

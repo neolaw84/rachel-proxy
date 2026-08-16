@@ -7,11 +7,10 @@ import pytest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-from rachel.core.state import SessionStateStore, _migrate_state
+from rachel.core.state import get_session_storage, _migrate_state
 from rachel.sandbox.sandbox import execute_sandbox
 from rachel.agent.tools import make_tools
 from rachel.agent.graph import run_agent
-from rachel.agent.prompts import get_system_instruction
 
 
 # 1. Test state migration and backward-compatibility
@@ -99,11 +98,16 @@ def test_deterministic_seeding():
 @patch("rachel.agent.openrouter.call_openrouter_direct", new_callable=AsyncMock)
 @patch("rachel.agent.graph.call_openrouter_streaming", new_callable=AsyncMock)
 async def test_graph_orchestration_nodes(mock_streaming, mock_direct):
-    # Set summary model response and plan model response
-    mock_direct.side_effect = [
-        "A heavy oak door was opened by the player.",
-        '["open door", "fight boss"]'
-    ]
+    # Determine mock response based on prompt text to handle asyncio.gather concurrency deterministically
+    async def mock_direct_fn(*args, **kwargs):
+        messages = kwargs.get("openai_messages", [])
+        prompt_content = messages[-1]["content"] if messages else ""
+        if "story planner" in prompt_content.lower():
+            return '["open door", "fight boss"]'
+        else:
+            return "A heavy oak door was opened by the player."
+    
+    mock_direct.side_effect = mock_direct_fn
     # Set main GM response
     mock_streaming.return_value = ("The door opens.", None, [])
 
@@ -119,10 +123,8 @@ async def test_graph_orchestration_nodes(mock_streaming, mock_direct):
          patch("rachel.config.PLAN_SUMMARY_GAP", 1), \
          patch("rachel.config.SUMMARY_TRIGGER_TYPE", "periodic"), \
          patch("rachel.config.SUMMARY_INTERVAL_TURNS", 1), \
-         patch("rachel.config.SUMMARY_BUNDLE_LLM", False), \
          patch("rachel.config.PLAN_TRIGGER_TYPE", "periodic"), \
-         patch("rachel.config.PLAN_INTERVAL_TURNS", 1), \
-         patch("rachel.config.PLAN_BUNDLE_LLM", False):
+         patch("rachel.config.PLAN_INTERVAL_TURNS", 1):
 
          messages = [
              {"role": "user", "content": "I open the door."},
@@ -188,70 +190,3 @@ async def test_graph_routing_with_disabled_triggers(mock_streaming, mock_direct)
          assert mock_direct.call_count == 0
          # Main LLM is still called
          assert mock_streaming.call_count == 1
-
-
-# 6. Test Bundled Trigger execution (injecting directives and executing tool calls with bundle_llm=True)
-@pytest.mark.asyncio
-@patch("rachel.agent.graph.call_openrouter_streaming", new_callable=AsyncMock)
-async def test_bundled_trigger_nodes_execution(mock_streaming):
-    # Set main GM response to invoke tools update_plan and append_summary
-    # Return structure: (content, reasoning, list_of_tool_calls)
-    tool_calls = [
-        {
-            "id": "call_plan_1",
-            "type": "function",
-            "function": {
-                "name": "update_plan",
-                "arguments": '{"checklist": ["find keys", "escape room"]}'
-            }
-        },
-        {
-            "id": "call_summary_1",
-            "type": "function",
-            "function": {
-                "name": "append_summary",
-                "arguments": '{"text": "They decided to find the keys."}'
-            }
-        }
-    ]
-    mock_streaming.side_effect = [
-        ("I will plan and summarize.", None, tool_calls),
-        ("All updates completed.", None, [])
-    ]
-
-    before_state = {
-        "state": {},
-        "plan": [],
-        "summary": "Start.",
-        "hidden_state": {}
-    }
-
-    # Set both plan and summary to bundle_llm=True, and trigger periodic updates
-    with patch("rachel.config.SUMMARY_TRIGGER_TYPE", "periodic"), \
-         patch("rachel.config.SUMMARY_INTERVAL_TURNS", 1), \
-         patch("rachel.config.SUMMARY_BUNDLE_LLM", True), \
-         patch("rachel.config.PLAN_TRIGGER_TYPE", "periodic"), \
-         patch("rachel.config.PLAN_INTERVAL_TURNS", 1), \
-         patch("rachel.config.PLAN_BUNDLE_LLM", True):
-
-         messages = [
-             {"role": "user", "content": "Let's plan."}
-         ]
-
-         result = await run_agent(
-             messages=messages,
-             before_state=before_state,
-             api_key="fake-key",
-             base_url="fake-url",
-             model="fake-model"
-         )
-
-         # Verify main LLM was called (once for tool calls, once for final completion)
-         assert mock_streaming.call_count == 2
-         
-         # Verify that the tools updated the shared state successfully
-         assert result["after_state"]["summary"] == "Start.\n\nThey decided to find the keys."
-         assert result["after_state"]["plan"] == [
-             {"id": 1, "description": "find keys", "status": "to-do", "remark": ""},
-             {"id": 2, "description": "escape room", "status": "to-do", "remark": ""},
-         ]

@@ -120,6 +120,7 @@ def test_import_data(pg_engine):
     tk = "abcdefabcdefabcdefabcdef"
     data = {
         tk: {
+            "meta-data": {"session_id": "test-session-import", "turn_number": 1},
             "before": {"state": {"gold": 10}},
             "after": {"state": {"gold": 20}}
         }

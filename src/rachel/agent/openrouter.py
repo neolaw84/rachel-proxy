@@ -12,8 +12,6 @@ from rachel.config import INCLUDE_REASONING, REASONING_PAYLOAD
 
 import re
 
-import re
-
 def parse_think_tags(text: str) -> tuple[str, str]:
     """Extract reasoning from <think>, <thought>, <thinking>, <reasoning> tags and return (clean_content, extracted_reasoning).
     
@@ -147,16 +145,48 @@ def deep_merge(dict1: dict, dict2: dict) -> dict:
             dict1[key] = value
     return dict1
 
-def convert_to_openai_messages(messages: Sequence[BaseMessage]) -> list[dict]:
+def convert_to_openai_messages(
+    messages: Sequence[BaseMessage],
+    turn_numbers: list[int | None] | None = None,
+) -> list[dict]:
     """Convert LangChain messages to OpenAI-compatible message dicts."""
     openai_msgs = []
-    for m in messages:
+
+    if turn_numbers is None:
+        computed_turn_numbers = []
+        curr_t = 0
+        for m in messages:
+            if isinstance(m, SystemMessage):
+                computed_turn_numbers.append(None)
+            elif isinstance(m, HumanMessage) or (isinstance(m, dict) and m.get("role") == "user"):
+                curr_t += 1
+                computed_turn_numbers.append(curr_t)
+            elif isinstance(m, AIMessage) or (isinstance(m, dict) and m.get("role") == "assistant"):
+                computed_turn_numbers.append(curr_t if curr_t > 0 else 1)
+            else:
+                computed_turn_numbers.append(curr_t if curr_t > 0 else None)
+        turn_numbers = computed_turn_numbers
+
+    current_turn_number = turn_numbers[-1] if turn_numbers else None
+    for i, m in enumerate(messages):
+        turn_num = None
+        if turn_numbers and i < len(turn_numbers):
+            turn_num = turn_numbers[i]
+        elif turn_numbers:
+            turn_num = current_turn_number
+
+        prefix = f"Turn {turn_num}: " if turn_num is not None else ""
+
         if isinstance(m, SystemMessage):
             openai_msgs.append({"role": "system", "content": m.content})
         elif isinstance(m, AIMessage):
             msg: dict[str, Any] = {"role": "assistant"}
             if m.content:
-                msg["content"] = m.content
+                content_str = str(m.content)
+                if not content_str.startswith("Turn "):
+                    msg["content"] = prefix + content_str
+                else:
+                    msg["content"] = content_str
             if m.tool_calls:
                 msg["tool_calls"] = [
                     {
@@ -180,8 +210,17 @@ def convert_to_openai_messages(messages: Sequence[BaseMessage]) -> list[dict]:
                 "name": m.name,
                 "content": m.content
             })
+        elif isinstance(m, dict):
+            role = m.get("role", "user")
+            content_str = str(m.get("content") or "")
+            if role in ("user", "assistant") and content_str and not content_str.startswith("Turn "):
+                content_str = prefix + content_str
+            openai_msgs.append({**m, "content": content_str})
         else:
-            openai_msgs.append({"role": "user", "content": m.content})
+            content_str = str(getattr(m, "content", ""))
+            if not content_str.startswith("Turn "):
+                content_str = prefix + content_str
+            openai_msgs.append({"role": "user", "content": content_str})
     return openai_msgs
 
 async def call_llm_streaming(
@@ -190,12 +229,12 @@ async def call_llm_streaming(
     model: str,
     openai_messages: list[dict],
     stream_queue: asyncio.Queue | None,
-    include_plan: bool = False,
-    include_summary: bool = False,
     temperature: float | None = None,
     session_id: str | None = None,
     prompt_cache_key: str | None = None,
     user: str | None = None,
+    tools: list[dict] | None = None,
+    tool_choice: Any | None = None,
 ) -> tuple[str, str, list[dict]]:
     """Call LLM provider, streaming reasoning/content chunks to stream_queue if present."""
     headers = {
@@ -204,16 +243,17 @@ async def call_llm_streaming(
         "HTTP-Referer": "http://localhost",
         "X-Title": "RPG Agent Proxy",
     }
+    payload_tools = tools if tools is not None else get_tools_schema(
+        get_sandbox_engine().name,
+    )
     payload: dict[str, Any] = {
         "model": model,
         "messages": openai_messages,
-        "tools": get_tools_schema(
-            get_sandbox_engine().name,
-            include_plan=include_plan,
-            include_summary=include_summary,
-        ),
+        "tools": payload_tools,
         "stream": stream_queue is not None,
     }
+    if tool_choice is not None:
+        payload["tool_choice"] = tool_choice
     if temperature is not None:
         payload["temperature"] = temperature
     if session_id:
@@ -357,8 +397,11 @@ async def call_llm_direct(
     session_id: str | None = None,
     prompt_cache_key: str | None = None,
     user: str | None = None,
-) -> str:
-    """Make a simple, direct, non-streaming completion call to provider without tool injection."""
+    tools: list[dict] | None = None,
+    tool_choice: Any | None = None,
+    return_tool_calls: bool = False,
+) -> str | tuple[str, list[dict]]:
+    """Make a simple, direct, non-streaming completion call to provider."""
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -370,6 +413,10 @@ async def call_llm_direct(
         "messages": openai_messages,
         "temperature": temperature,
     }
+    if tools is not None:
+        payload["tools"] = tools
+    if tool_choice is not None:
+        payload["tool_choice"] = tool_choice
     if session_id:
         headers["X-Session-Id"] = session_id
         payload["session_id"] = session_id
@@ -387,8 +434,12 @@ async def call_llm_direct(
         if response.status_code >= 400:
             raise RuntimeError(f"Provider API error ({response.status_code}): {response.text}")
         res_json = response.json()
-        raw_content = res_json["choices"][0]["message"].get("content") or ""
+        msg = res_json["choices"][0]["message"]
+        raw_content = msg.get("content") or ""
+        tcs = msg.get("tool_calls") or []
         clean_content, _ = parse_think_tags(raw_content)
+        if return_tool_calls:
+            return clean_content, tcs
         return clean_content
 
 # Backward compatibility aliases
