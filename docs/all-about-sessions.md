@@ -133,3 +133,40 @@ Completely deletes the session state file from disk. The next request with this 
     "message": "Session campaign_1 deleted."
   }
   ```
+
+### 5. Export Session History (Read/Export)
+Exports the complete turn history and states of a session as a downloadable JSON object.
+* **Method**: `GET`
+* **Endpoint**: `/v1/sessions/{session_id}/export`
+* **Response Example**:
+  ```json
+  {
+    "abcdefabcdefabcdefabcdef": {
+      "meta-data": {"session_id": "campaign_1", "turn_number": 1},
+      "before": {"state": {}, "plan": [], "summary": "", "hidden_state": {}},
+      "after": {"state": {"hp": 100}, "plan": [], "summary": "", "hidden_state": {}}
+    }
+  }
+  ```
+
+### 6. Import Session History (Write/Import)
+Imports a previously exported session history JSON object, restoring the state of the session.
+* **Method**: `POST`
+* **Endpoint**: `/v1/sessions/{session_id}/import`
+* **Request Body Example**:
+  ```json
+  {
+    "abcdefabcdefabcdefabcdef": {
+      "meta-data": {"session_id": "campaign_1", "turn_number": 1},
+      "before": {"state": {}, "plan": [], "summary": "", "hidden_state": {}},
+      "after": {"state": {"hp": 100}, "plan": [], "summary": "", "hidden_state": {}}
+    }
+  }
+  ```
+* **Response Example**:
+  ```json
+  {
+    "status": "ok",
+    "message": "Session campaign_1 imported."
+  }
+  ```

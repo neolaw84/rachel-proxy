@@ -15,7 +15,8 @@ from rachel.agent.prompts import (
     get_summary_prompt,
     get_plan_prompt,
     get_range_reference,
-    middle_out_messages,
+    # TODO: Clean up unused import in next cleanup session
+    # middle_out_messages,
 )
 from rachel.agent.openrouter import convert_to_openai_messages, call_openrouter_streaming, call_openrouter_direct
 from rachel.sandbox.sandbox import get_sandbox_engine

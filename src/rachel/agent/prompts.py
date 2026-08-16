@@ -89,6 +89,7 @@ def get_range_reference(messages: Sequence[BaseMessage], turns_since_update: int
         return start_repr
     return f"{start_repr} ... {end_repr}"
 
+# TODO: Clean up / re-evaluate middle_out_messages in next cleanup session (currently unwired in agent graph)
 def middle_out_messages(
     messages: Sequence[BaseMessage],
     turns_since_update: int,

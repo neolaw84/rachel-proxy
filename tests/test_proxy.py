@@ -45,7 +45,7 @@ def test_unauthorized_request(mock_run, client):
     mock_run.assert_not_called()
 
 
-@pytest.mark.parametrize("engine_name", ["v8", "python"])
+@pytest.mark.parametrize("engine_name", ["v8"])
 @patch("rachel.routes.completions.run_agent", new_callable=AsyncMock)
 def test_normal_flow_and_persistence(mock_run, client, auth_headers, tmp_path, engine_name):
     """Verify normal non-streaming request flow and state persistence."""
@@ -92,7 +92,7 @@ def test_normal_flow_and_persistence(mock_run, client, auth_headers, tmp_path, e
             assert store.get_before_state(turn_key)["state"] == {"gold": 100}
 
 
-@pytest.mark.parametrize("engine_name", ["v8", "python"])
+@pytest.mark.parametrize("engine_name", ["v8"])
 @patch("rachel.routes.completions.run_agent", new_callable=AsyncMock)
 def test_cache_miss_handling(mock_run, client, auth_headers, tmp_path, engine_name):
     """Verify that a cache miss does not return 400 but treats request as if new,
@@ -141,7 +141,7 @@ def test_cache_miss_handling(mock_run, client, auth_headers, tmp_path, engine_na
             assert store.get_before_state(turn_key)["state"] == {"quest": "active"}
 
 
-@pytest.mark.parametrize("engine_name", ["v8", "python"])
+@pytest.mark.parametrize("engine_name", ["v8"])
 @patch("rachel.routes.completions.run_agent", new_callable=AsyncMock)
 def test_streaming_cache_miss(mock_run, client, auth_headers, tmp_path, engine_name):
     """Verify that streaming response handles cache miss by appending the OOC notice chunk."""

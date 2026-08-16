@@ -81,11 +81,11 @@ pip install -e ".[dev]"
 * If no Python >= 3.12 environment exists on the system, fall back to the available `python3` runtime and print out a warning (some type annotations or dependencies might fail on Python <= 3.11).
 
 ### B. Running the Test Suite
-Always validate code changes by running `pytest`. Preconditions: the `venv` must be activated.
+Always validate code changes and ensure at least 75% test coverage. Preconditions: the `venv` must be activated.
 ```bash
-venv/bin/pytest
+venv/bin/pytest --cov=src --cov-fail-under=75
 ```
-*Expected output: All test cases under `tests/` pass successfully (average execution time < 3s).*
+*Expected output: All test cases under `tests/` pass successfully and coverage meets the 75% threshold.*
 
 ### C. Running the Proxy
 Ensure you copy `.env.example` to `.env` and set a valid `OPENROUTER_API_KEY` before starting the server.
