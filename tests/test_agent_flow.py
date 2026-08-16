@@ -16,7 +16,8 @@ async def test_run_agent_flow_with_streaming():
     and final content chunks onto the provided stream_queue.
     """
     stream_queue = asyncio.Queue()
-    before_state = {"hp": 100}
+    before_state = {"state": {"hp": 100}, "hidden_state": {}, "summary": "", "plan": []}
+
 
     # Custom responses to simulate 2 iterations of the LLM node:
     # Iteration 1: Calls execute_code_sandbox
@@ -85,8 +86,16 @@ async def test_run_agent_flow_with_streaming():
     def mock_stream(*args, **kwargs):
         return MockStreamResponse()
 
-    # Patch httpx.AsyncClient.stream
-    with patch("httpx.AsyncClient.stream", side_effect=mock_stream):
+    class MockPostResponse:
+        def __init__(self, status_code=200):
+            self.status_code = status_code
+            self.text = "{}"
+        def json(self):
+            return {"choices": [{"message": {"content": "ok"}}]}
+
+    # Patch httpx.AsyncClient.stream and post
+    with patch("httpx.AsyncClient.stream", side_effect=mock_stream), \
+         patch("httpx.AsyncClient.post", return_value=MockPostResponse()):
         result = await run_agent(
             messages=[{"role": "user", "content": "attack me"}],
             before_state=before_state,
@@ -100,7 +109,8 @@ async def test_run_agent_flow_with_streaming():
 
         # 1. Assert return payload values
         assert result["content"] == "You took damage! Your HP is now 80."
-        assert result["after_state"] == {"hp": 80}
+        assert result["after_state"]["state"] == {"hp": 80}
+
 
         # 2. Extract queue items to check the exact order of events
         events = []
@@ -129,3 +139,32 @@ async def test_run_agent_flow_with_streaming():
         content_events = [val for ctype, val in events if ctype == "content"]
         assert len(content_events) > 0
         assert "You took damage!" in content_events[0]
+
+
+@pytest.mark.asyncio
+@patch("rachel.agent.graph.call_openrouter_streaming", new_callable=AsyncMock)
+async def test_end_turn_tool_call_routing(mock_streaming):
+    """Verify that calling end_turn tool stops iteration and routes to route_end."""
+    mock_streaming.return_value = (
+        "I have narrated the scene.",
+        None,
+        [{"id": "call_end_1", "type": "function", "function": {"name": "end_turn", "arguments": "{}"}}]
+    )
+
+    before_state = {"hp": 100}
+    messages = [{"role": "user", "content": "I look around."}]
+
+    result = await run_agent(
+        messages=messages,
+        before_state=before_state,
+        api_key="mock_key",
+        base_url="https://mock-openrouter/api/v1/chat/completions",
+        model="mock-model",
+        sandbox_timeout=1.0,
+        max_iterations=5,
+    )
+
+    # Should finish after 1 call because end_turn was called
+    assert mock_streaming.call_count == 1
+    assert result["content"] == "I have narrated the scene."
+

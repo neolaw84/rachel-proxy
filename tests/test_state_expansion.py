@@ -11,7 +11,6 @@ from rachel.core.state import get_session_storage, _migrate_state
 from rachel.sandbox.sandbox import execute_sandbox
 from rachel.agent.tools import make_tools
 from rachel.agent.graph import run_agent
-from rachel.agent.prompts import get_system_instruction
 
 
 # 1. Test state migration and backward-compatibility
@@ -124,10 +123,8 @@ async def test_graph_orchestration_nodes(mock_streaming, mock_direct):
          patch("rachel.config.PLAN_SUMMARY_GAP", 1), \
          patch("rachel.config.SUMMARY_TRIGGER_TYPE", "periodic"), \
          patch("rachel.config.SUMMARY_INTERVAL_TURNS", 1), \
-         patch("rachel.config.SUMMARY_BUNDLE_LLM", False), \
          patch("rachel.config.PLAN_TRIGGER_TYPE", "periodic"), \
-         patch("rachel.config.PLAN_INTERVAL_TURNS", 1), \
-         patch("rachel.config.PLAN_BUNDLE_LLM", False):
+         patch("rachel.config.PLAN_INTERVAL_TURNS", 1):
 
          messages = [
              {"role": "user", "content": "I open the door."},

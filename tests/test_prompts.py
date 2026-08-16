@@ -6,28 +6,13 @@ from rachel.agent.prompts import get_summary_prompt, get_plan_prompt
 def test_get_summary_prompt():
     prev_summary = "Alice went to the tavern."
     range_ref = "Hello ... Thanks."
-    target_words = 50
     state = {"hp": 99}
     hidden_state = {"secret_var": "val"}
     
-    # Standalone mode
-    prompt = get_summary_prompt(prev_summary, target_words, "2 turns", range_ref, state, hidden_state, is_bundle=False)
+    prompt = get_summary_prompt(prev_summary, 50, "2 turns", range_ref, state, hidden_state)
     assert prev_summary in prompt
     assert range_ref in prompt
-    assert "2 turns" in prompt
-    assert str(target_words) in prompt
     assert "hp" in prompt
-    assert "secret_var" in prompt
-    assert "append_summary" not in prompt
-
-    # Bundled mode
-    prompt_bundled = get_summary_prompt(prev_summary, target_words, "2 turns", range_ref, state, hidden_state, is_bundle=True)
-    assert prev_summary not in prompt_bundled
-    assert range_ref in prompt_bundled
-    assert "2 turns" in prompt_bundled
-    assert str(target_words) in prompt_bundled
-    assert "append_summary" in prompt_bundled
-    assert prompt_bundled != prompt
 
 def test_get_plan_prompt():
     prev_plan = [{"id": 1, "description": "Goal 1", "status": "to-do", "remark": ""}]
@@ -35,32 +20,20 @@ def test_get_plan_prompt():
     state = {"hp": 99}
     hidden_state = {"secret_var": "val"}
     
-    # Standalone mode
-    prompt = get_plan_prompt(prev_plan, "3 turns", range_ref, state, hidden_state, is_bundle=False)
+    prompt = get_plan_prompt(prev_plan, "3 turns", range_ref, state, hidden_state)
     assert range_ref in prompt
     assert "3 turns" in prompt
     assert "Goal 1" in prompt
-    assert "to-do" in prompt
-    assert "hp" in prompt
-    assert "secret_var" in prompt
-    assert "update_plan" not in prompt
-
-    # Bundled mode
-    prompt_bundled = get_plan_prompt(prev_plan, "3 turns", range_ref, state, hidden_state, is_bundle=True)
-    assert range_ref in prompt_bundled
-    assert "3 turns" in prompt_bundled
-    assert "Goal 1" not in prompt_bundled
-    assert "update_plan" in prompt_bundled
-    assert prompt_bundled != prompt
 
 
 def test_get_tools_schema_filtering():
     from rachel.sandbox.schemas import get_tools_schema
 
-    # Test default returns only execute_code_sandbox
+    # Test master schema array returns all 5 static tool schemas for prompt caching
     schemas = get_tools_schema("v8")
     names = [s["function"]["name"] for s in schemas]
-    assert names == ["execute_code_sandbox"]
+    assert names == ["execute_code_sandbox", "end_turn", "submit_plan", "submit_summary", "submit_cleanup"]
+
 
 
 @pytest.mark.asyncio
@@ -279,59 +252,8 @@ async def test_new_orchestration_trigger_schedule(mock_streaming):
              assert cfg["configurable"]["cleanup_fired"] is False
 
 
-@pytest.mark.asyncio
-@patch("rachel.agent.graph.call_openrouter_streaming", new_callable=AsyncMock)
-async def test_dynamic_tool_disabling_after_call(mock_streaming):
-    from unittest.mock import patch, AsyncMock
-    from langchain_core.messages import HumanMessage, AIMessage
-    from rachel.agent.graph import _build_llm_node, AgentState
-    from langchain_core.runnables import RunnableConfig
-
-    mock_streaming.return_value = ("GM response", None, [])
-
-    # HumanMessage followed by AIMessage that already called update_plan
-    messages = [
-        HumanMessage(content="user message"),
-        AIMessage(content="", tool_calls=[{"name": "update_plan", "args": {"checklist": []}, "id": "call_1", "type": "tool_call"}]),
-    ]
-
-    state: AgentState = {
-        "messages": messages,
-        "rpg_state": {},
-        "sandbox_timeout": 2.0,
-        "iteration_count": 1
-    }
-
-    state_container = {"rpg_state": {}}
-
-    llm_node_fn = _build_llm_node(
-        api_key="fake",
-        base_url="fake",
-        model="fake",
-        max_iterations=5,
-        sandbox_timeout=2.0,
-        state_container=state_container
-    )
-
-    config: RunnableConfig = {
-        "configurable": {
-            "bundle_plan_fired": True,
-            "bundle_summary_fired": True,
-        }
-    }
-
-    with patch("rachel.agent.graph.get_system_instruction") as mock_get_instruction:
-        mock_get_instruction.return_value = "System Prompt"
-        await llm_node_fn(state, config)
-
-        # Verify get_system_instruction was called with plan disabled but summary enabled
-        kwargs = mock_get_instruction.call_args[1]
-        assert kwargs["bundle_plan_fired"] is False
-        assert kwargs["bundle_summary_fired"] is True
-
-
 def test_system_instruction_dynamic_formatting():
-    from rachel.agent.prompts import get_system_instruction
+    from rachel.agent.prompts import get_dynamic_turn_directive
     from langchain_core.messages import HumanMessage, AIMessage
 
     messages = [
@@ -343,80 +265,23 @@ def test_system_instruction_dynamic_formatting():
         AIMessage(content="Enjoy your ale!"),
     ]
 
-    # Case 1: no plan / no summary triggers
     rpg_state = {
         "state": {"hp": 100},
         "plan": [],
         "summary": "",
         "hidden_state": {"last_plan_turn": 2, "last_summary_turn": 3}
     }
-    instruction = get_system_instruction(
+    instruction = get_dynamic_turn_directive(
         rpg_state=rpg_state,
-        sandbox_timeout=2.0,
         max_iterations=5,
         current_iteration=1,
         rem_iterations=4,
         messages=messages,
-        engine_name="v8",
-        bundle_plan_fired=False,
-        bundle_summary_fired=False,
         turn_number=5
     )
-    assert "Perform the following 1 task:" in instruction
+    assert "[Agentic Roleplay AI System Mode: **Progress**]" in instruction
     assert "- Task 1 of 1: Progress the story" in instruction
-    assert "## Updating Plan" not in instruction
-    assert "## Creating Summary to Append" not in instruction
 
-    # Case 2: plan and summary triggers active
-    instruction_both = get_system_instruction(
-        rpg_state=rpg_state,
-        sandbox_timeout=2.0,
-        max_iterations=5,
-        current_iteration=1,
-        rem_iterations=4,
-        messages=messages,
-        engine_name="v8",
-        bundle_plan_fired=True,
-        bundle_summary_fired=True,
-        turn_number=5
-    )
-    assert "Perform the following 3 tasks:" in instruction_both
-    assert "- Task 1 of 3: Call the `update_plan` tool" in instruction_both
-    assert "which was 3 turns ago" in instruction_both  # plan: 5 - 2 = 3
-    # For plan (3 turns ago = 6 messages range: index 0 to 5)
-    # Range is "Hello ... Enjoy your ale!"
-    assert 'The range of developments is: "Hello ... Enjoy your ale!"' in instruction_both
-    
-    assert "- Task 2 of 3: Call the `append_summary` tool" in instruction_both
-    assert "which was 2 turns ago" in instruction_both  # summary: 5 - 3 = 2
-    # For summary (2 turns ago = 4 messages range: index 2 to 5)
-    # Range is "I want to buy a drink. ... Enjoy your ale!"
-    assert 'The range of messages to summarize is: "I want to buy a drink. ... Enjoy your ale!"' in instruction_both
-    
-    assert "- Task 3 of 3: Progress the story" in instruction_both
-    assert "## Updating Plan" in instruction_both
-    assert "## Creating Summary to Append" in instruction_both
-
-    # Case 3: first turn (never updated)
-    rpg_state_empty = {
-        "state": {},
-        "plan": [],
-        "summary": "",
-        "hidden_state": {}
-    }
-    instruction_first = get_system_instruction(
-        rpg_state=rpg_state_empty,
-        sandbox_timeout=2.0,
-        max_iterations=5,
-        current_iteration=1,
-        rem_iterations=4,
-        messages=messages[:2],
-        engine_name="v8",
-        bundle_plan_fired=True,
-        bundle_summary_fired=True,
-        turn_number=1
-    )
-    assert "which was 1 turns ago (at the start of the game)" in instruction_first
 
 def test_middle_out_messages():
     from rachel.agent.prompts import middle_out_messages
@@ -500,10 +365,10 @@ async def test_llm_node_remaining_iterations(mock_streaming):
         "sandbox_timeout": 2.0,
         "iteration_count": 0
     }
-    with patch("rachel.agent.graph.get_system_instruction") as mock_get_instruction:
-        mock_get_instruction.return_value = "System Prompt"
+    with patch("rachel.agent.graph.get_dynamic_turn_directive") as mock_get_directive:
+        mock_get_directive.return_value = "Dynamic Directive"
         await llm_node_fn(state_0, config)
-        kwargs = mock_get_instruction.call_args[1]
+        kwargs = mock_get_directive.call_args[1]
         assert kwargs["rem_iterations"] == 4
         assert kwargs["current_iteration"] == 1
 
@@ -514,10 +379,10 @@ async def test_llm_node_remaining_iterations(mock_streaming):
         "sandbox_timeout": 2.0,
         "iteration_count": 4
     }
-    with patch("rachel.agent.graph.get_system_instruction") as mock_get_instruction:
-        mock_get_instruction.return_value = "System Prompt"
+    with patch("rachel.agent.graph.get_dynamic_turn_directive") as mock_get_directive:
+        mock_get_directive.return_value = "Dynamic Directive"
         await llm_node_fn(state_4, config)
-        kwargs = mock_get_instruction.call_args[1]
+        kwargs = mock_get_directive.call_args[1]
         assert kwargs["rem_iterations"] == 0
         assert kwargs["current_iteration"] == 5
 

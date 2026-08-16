@@ -10,7 +10,6 @@ from langgraph.graph import END
 from langgraph.graph.message import add_messages
 
 from rachel.agent.prompts import (
-    get_system_instruction,
     get_static_system_prompt,
     get_dynamic_turn_directive,
     get_summary_prompt,
@@ -38,11 +37,6 @@ class _GraphDelegate:
     """Helper class to delegate calls to graph.py to maintain test patch compatibility."""
 
     @staticmethod
-    def get_system_instruction(*args, **kwargs):
-        import rachel.agent.graph as graph
-        return graph.get_system_instruction(*args, **kwargs)
-
-    @staticmethod
     def get_static_system_prompt(*args, **kwargs):
         import rachel.agent.graph as graph
         return graph.get_static_system_prompt(*args, **kwargs)
@@ -53,19 +47,9 @@ class _GraphDelegate:
         return graph.get_dynamic_turn_directive(*args, **kwargs)
 
     @staticmethod
-    def get_static_plan_prompt(*args, **kwargs):
-        import rachel.agent.graph as graph
-        return graph.get_static_plan_prompt(*args, **kwargs)
-
-    @staticmethod
     def get_dynamic_plan_directive(*args, **kwargs):
         import rachel.agent.graph as graph
         return graph.get_dynamic_plan_directive(*args, **kwargs)
-
-    @staticmethod
-    def get_static_summary_prompt(*args, **kwargs):
-        import rachel.agent.graph as graph
-        return graph.get_static_summary_prompt(*args, **kwargs)
 
     @staticmethod
     def get_dynamic_summary_directive(*args, **kwargs):
@@ -73,14 +57,10 @@ class _GraphDelegate:
         return graph.get_dynamic_summary_directive(*args, **kwargs)
 
     @staticmethod
-    def get_static_cleanup_prompt(*args, **kwargs):
-        import rachel.agent.graph as graph
-        return graph.get_static_cleanup_prompt(*args, **kwargs)
-
-    @staticmethod
     def get_dynamic_cleanup_directive(*args, **kwargs):
         import rachel.agent.graph as graph
         return graph.get_dynamic_cleanup_directive(*args, **kwargs)
+
 
     @staticmethod
     def get_plan_prompt(*args, **kwargs):
@@ -108,13 +88,24 @@ class _GraphDelegate:
         return await graph.call_openrouter_direct(*args, **kwargs)
 
 
-def _get_recent_turn_messages(messages: Sequence[Any], last_update_turn: int) -> list[dict]:
+def _get_recent_turn_messages(
+    messages: Sequence[Any],
+    last_update_turn: int,
+    include_dangling_user: bool = True,
+    turn_numbers: list[int | None] | None = None,
+    initial_num_msgs_to_include: int = 4,
+) -> list[dict]:
     """
-    Extract turn messages starting from Turn (last_update_turn + 1) up to the current last message.
+    Extract turn messages preserving up to initial_num_msgs_to_include initial non-system messages,
+    plus messages starting from Turn (last_update_turn + 1) up to target end.
+    - If include_dangling_user=True (for plan & cleanup): includes current turn's user action message.
+    - If include_dangling_user=False (for summary): excludes uncompleted current turn's user action message,
+      stopping at Turn (current_turn - 1)'s assistant message.
     Preserves incoming Message 0 (client character card) at index 0 if present.
-    Counts assistant messages in history to determine exact turn boundary.
+    Applies 'Turn x: ' prefixes to all user and assistant messages.
+    Deduplicates overlapping indices between initial messages and recent turn window.
     """
-    openai_msgs = convert_to_openai_messages(messages)
+    openai_msgs = convert_to_openai_messages(messages, turn_numbers=turn_numbers)
     if not openai_msgs:
         return []
 
@@ -124,18 +115,32 @@ def _get_recent_turn_messages(messages: Sequence[Any], last_update_turn: int) ->
         card_msg = dict(openai_msgs[0])
         first_idx = 1
 
-    if last_update_turn == 0:
-        recent_history = [dict(m) for m in openai_msgs[first_idx:]]
-    else:
+    start_idx = first_idx
+    if last_update_turn > 0:
         asst_count = 0
-        cutoff_idx = len(openai_msgs)
         for i in range(first_idx, len(openai_msgs)):
             if openai_msgs[i].get("role") == "assistant":
                 asst_count += 1
                 if asst_count == last_update_turn:
-                    cutoff_idx = i + 1
+                    start_idx = i + 1
                     break
-        recent_history = [dict(m) for m in openai_msgs[cutoff_idx:]]
+
+    end_idx = len(openai_msgs)
+    if not include_dangling_user:
+        last_asst_idx = None
+        for i in range(len(openai_msgs) - 1, first_idx - 1, -1):
+            if openai_msgs[i].get("role") == "assistant":
+                last_asst_idx = i
+                break
+        if last_asst_idx is not None:
+            end_idx = last_asst_idx + 1
+
+    initial_end = min(first_idx + max(0, initial_num_msgs_to_include), len(openai_msgs))
+    initial_indices = list(range(first_idx, initial_end))
+    recent_indices = list(range(start_idx, end_idx)) if start_idx < end_idx else []
+
+    combined_indices = sorted(list(set(initial_indices) | set(recent_indices)))
+    recent_history = [dict(openai_msgs[i]) for i in combined_indices]
 
     result = []
     if card_msg:
@@ -145,6 +150,7 @@ def _get_recent_turn_messages(messages: Sequence[Any], last_update_turn: int) ->
 
     result.extend(recent_history)
     return result
+
 
 
 def _calculate_turns_since_update(current_turn: int, last_update_turn: int) -> tuple[int, str]:
@@ -171,37 +177,12 @@ def _build_llm_node(
     max_iterations: int,
     sandbox_timeout: float,
     state_container: dict[str, Any],
-    temperature: float | None = None,
+    temperature: float = 0.7,
 ):
-    """Return the LLM node callable."""
+    """Return the main LLM node callable."""
     async def llm_node(state: AgentState, config: RunnableConfig) -> dict:
-        stream_queue = config.get("configurable", {}).get("stream_queue")
-        bundle_plan_fired = config.get("configurable", {}).get("bundle_plan_fired", False)
-        bundle_summary_fired = config.get("configurable", {}).get("bundle_summary_fired", False)
-        bundle_cleanup_fired = config.get("configurable", {}).get("bundle_cleanup_fired", False)
-
-        # Check if the tools have already been invoked in the current turn (since the last user message)
-        plan_called = False
-        summary_called = False
-        last_human_idx = -1
-        for idx, msg in enumerate(state["messages"]):
-            if isinstance(msg, HumanMessage):
-                last_human_idx = idx
-
-        messages_to_scan = state["messages"][last_human_idx + 1:] if last_human_idx != -1 else state["messages"]
-        for msg in messages_to_scan:
-            if isinstance(msg, AIMessage) and msg.tool_calls:
-                for tc in msg.tool_calls:
-                    if tc.get("name") == "update_plan":
-                        plan_called = True
-                    elif tc.get("name") == "append_summary":
-                        summary_called = True
-
-        # Override trigger flags if they have already been executed
-        if plan_called:
-            bundle_plan_fired = False
-        if summary_called:
-            bundle_summary_fired = False
+        configurable = config.get("configurable", {})
+        stream_queue = configurable.get("stream_queue")
 
         # 1. Generate Static System Prompt and Dynamic Turn Directive
         rem_iterations = max(0, max_iterations - state["iteration_count"] - 1)
@@ -222,23 +203,8 @@ def _build_llm_node(
                 current_rpg_state["hidden_state"] = {}
             current_rpg_state["hidden_state"]["session_info"] = caching_info
 
-        system_instruction = _GraphDelegate.get_system_instruction(
-            rpg_state=current_rpg_state,
-            sandbox_timeout=sandbox_timeout,
-            max_iterations=max_iterations,
-            current_iteration=state["iteration_count"] + 1,
-            rem_iterations=rem_iterations,
-            messages=state["messages"],
-            engine_name=get_sandbox_engine().name,
-            bundle_plan_fired=bundle_plan_fired,
-            bundle_summary_fired=bundle_summary_fired,
-            bundle_cleanup_fired=bundle_cleanup_fired,
-            turn_number=turn_number,
-        )
-
         static_prompt = _GraphDelegate.get_static_system_prompt(
             sandbox_timeout=sandbox_timeout,
-            engine_name=get_sandbox_engine().name,
         )
 
         dynamic_directive = _GraphDelegate.get_dynamic_turn_directive(
@@ -247,10 +213,6 @@ def _build_llm_node(
             current_iteration=state["iteration_count"] + 1,
             rem_iterations=rem_iterations,
             messages=state["messages"],
-            engine_name=get_sandbox_engine().name,
-            bundle_plan_fired=bundle_plan_fired,
-            bundle_summary_fired=bundle_summary_fired,
-            bundle_cleanup_fired=bundle_cleanup_fired,
             turn_number=turn_number,
         )
 
@@ -266,33 +228,34 @@ def _build_llm_node(
         else:
             openai_msgs.insert(0, {"role": "system", "content": static_prompt})
 
-        # Append dynamic turn directive to last user message
-        found_user = False
-        for msg in reversed(openai_msgs):
-            if msg.get("role") == "user":
-                orig_content = msg.get("content") or ""
-                instruction_block = (
-                    f"\n\n---\n"
-                    f"[RPG DIRECTIVE & GAME STATE (Turn {turn_number})]\n"
-                    f"{dynamic_directive}"
-                )
-                msg["content"] = orig_content + instruction_block
-                found_user = True
-                break
-
-        if not found_user:
-            openai_msgs.append({"role": "system", "content": dynamic_directive})
+        # Append dynamic turn directive to last user message or append as new user message at the end
+        if openai_msgs and openai_msgs[-1].get("role") == "user":
+            orig_content = openai_msgs[-1].get("content") or ""
+            instruction_block = (
+                f"\n\n---\n"
+                f"[RPG DIRECTIVE & GAME STATE (Turn {turn_number})]\n"
+                f"{dynamic_directive}"
+            )
+            openai_msgs[-1]["content"] = orig_content + instruction_block
+        else:
+            instruction_block = (
+                f"[RPG DIRECTIVE & GAME STATE (Turn {turn_number})]\n"
+                f"{dynamic_directive}"
+            )
+            openai_msgs.append({"role": "user", "content": instruction_block})
 
         # 2. Call OpenRouter
+        engine = get_sandbox_engine()
+        all_tools = get_all_tools_schema(engine.name)
+
         content, reasoning, tcs = await _GraphDelegate.call_openrouter_streaming(
             api_key=api_key,
             base_url=base_url,
             model=model,
             openai_messages=openai_msgs,
             stream_queue=stream_queue,
-            include_plan=bundle_plan_fired,
-            include_summary=bundle_summary_fired,
             temperature=temperature,
+            tools=all_tools,
             **session_kwargs,
         )
 
@@ -330,77 +293,18 @@ def _build_llm_node(
 
         return {
             "messages": [ai_msg],
-            "iteration_count": state["iteration_count"] + 1,
+            "iteration_count": state["iteration_count"] + 1
         }
     return llm_node
 
-SUBMIT_PLAN_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "submit_plan",
-        "description": "Submit the updated checklist of story goals and NPC plans as a structured array.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "items": {
-                    "type": "array",
-                    "description": "List of plan items",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "id": {"type": ["integer", "string"], "description": "Unique identifier"},
-                            "description": {"type": "string", "description": "Goal description"},
-                            "status": {
-                                "type": "string",
-                                "enum": ["to-do", "in-progress", "completed", "failed"],
-                                "description": "Current status"
-                            },
-                            "remark": {"type": "string", "description": "Optional notes or remarks"}
-                        },
-                        "required": ["id", "description", "status"]
-                    }
-                }
-            },
-            "required": ["items"]
-        }
-    }
-}
+from rachel.sandbox.schemas import (
+    get_all_tools_schema,
+    SUBMIT_PLAN_TOOL,
+    SUBMIT_SUMMARY_TOOL,
+    SUBMIT_CLEANUP_TOOL,
+    END_TURN_TOOL,
+)
 
-SUBMIT_SUMMARY_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "submit_summary",
-        "description": "Submit the narrative summary block describing developments.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "summary": {
-                    "type": "string",
-                    "description": "Concise narrative summary block."
-                }
-            },
-            "required": ["summary"]
-        }
-    }
-}
-
-SUBMIT_CLEANUP_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "submit_cleanup",
-        "description": "Submit code snippet to clean up state and hidden_state variables.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "code": {
-                    "type": "string",
-                    "description": "Code snippet to execute in sandbox."
-                }
-            },
-            "required": ["code"]
-        }
-    }
-}
 
 
 def _build_summary_node(api_key: str, state_container: dict[str, Any], base_url: str | None = None):
@@ -417,6 +321,14 @@ def _build_summary_node(api_key: str, state_container: dict[str, Any], base_url:
         current_turn = sum(1 for m in state["messages"] if isinstance(m, AIMessage)) + 1
         last_summary_turn = state_container.get("last_summary_turn", 0)
 
+        # Completed turns arithmetic: from last_summary_turn + 1 to current_turn - 1
+        start_summary_turn = last_summary_turn + 1
+        end_summary_turn = current_turn - 1
+
+        if end_summary_turn < start_summary_turn:
+            logger.info("Summary node: No completed turns to summarize yet (current_turn=%d, last_summary_turn=%d)", current_turn, last_summary_turn)
+            return {"rpg_state": rpg}
+
         session_id = config.get("configurable", {}).get("session_id") or state_container.get("session_id")
         session_kwargs = {}
         if session_id:
@@ -428,33 +340,58 @@ def _build_summary_node(api_key: str, state_container: dict[str, Any], base_url:
                 "user": caching_info["user"],
             }
 
-        summary_turns_val, turns_since_update = _calculate_turns_since_update(current_turn, last_summary_turn)
+        turns_since_update_num = end_summary_turn - last_summary_turn
+        _, turns_since_update_str = _calculate_turns_since_update(current_turn, last_summary_turn)
 
-        range_ref = get_range_reference(state["messages"], summary_turns_val)
+        range_ref = get_range_reference(state["messages"], turns_since_update_num)
         prev_summary = rpg.get("summary", "")
 
         # For test mock compatibility
         _GraphDelegate.get_summary_prompt(
             prev_summary=prev_summary,
             target_words=SUMMARY_TARGET_WORDS,
-            turns_since_update=turns_since_update,
+            turns_since_update=turns_since_update_str,
             range_ref=range_ref,
             state=rpg.get("state", {}),
             hidden_state=rpg.get("hidden_state", {}),
-            is_bundle=False,
+            start_turn=start_summary_turn,
+            end_turn=end_summary_turn,
         )
 
-        history_msgs = _get_recent_turn_messages(state["messages"], last_summary_turn)
-        static_prompt = _GraphDelegate.get_static_summary_prompt(target_words=SUMMARY_TARGET_WORDS)
+        from rachel.config import SUMMARY_INITIAL_NUM_MSGS_TO_INCLUDE
+
+        history_msgs = _get_recent_turn_messages(
+            state["messages"],
+            last_summary_turn,
+            include_dangling_user=False,
+            turn_numbers=state_container.get("turn_numbers"),
+            initial_num_msgs_to_include=SUMMARY_INITIAL_NUM_MSGS_TO_INCLUDE,
+        )
+        static_prompt = _GraphDelegate.get_static_system_prompt(
+            sandbox_timeout=state_container.get("sandbox_timeout", 2.0),
+        )
         dynamic_directive = _GraphDelegate.get_dynamic_summary_directive(
             prev_summary=prev_summary,
             range_ref=range_ref,
             state=rpg.get("state", {}),
+            start_turn=start_summary_turn,
+            end_turn=end_summary_turn,
         )
 
-        card_content = history_msgs[0].get("content") or ""
-        history_msgs[0]["content"] = f"{card_content}\n\n---\n{static_prompt}".strip()
-        history_msgs.append({"role": "system", "content": dynamic_directive})
+        if history_msgs and history_msgs[0].get("role") == "system":
+            orig_sys = history_msgs[0].get("content") or ""
+            history_msgs[0]["content"] = f"{orig_sys}\n\n---\n{static_prompt}".strip()
+        else:
+            history_msgs.insert(0, {"role": "system", "content": static_prompt})
+
+        if history_msgs and history_msgs[-1].get("role") == "user":
+            orig_user = history_msgs[-1].get("content") or ""
+            history_msgs[-1]["content"] = f"{orig_user}\n\n---\n{dynamic_directive}"
+        else:
+            history_msgs.append({"role": "user", "content": dynamic_directive})
+
+        engine = get_sandbox_engine()
+        all_tools = get_all_tools_schema(engine.name)
 
         try:
             direct_res = await _GraphDelegate.call_openrouter_direct(
@@ -463,7 +400,7 @@ def _build_summary_node(api_key: str, state_container: dict[str, Any], base_url:
                 model=SUMMARY_MODEL,
                 openai_messages=history_msgs,
                 temperature=SUMMARY_TEMPERATURE,
-                tools=[SUBMIT_SUMMARY_TOOL],
+                tools=all_tools,
                 tool_choice={"type": "function", "function": {"name": "submit_summary"}},
                 return_tool_calls=True,
                 **session_kwargs,
@@ -495,7 +432,7 @@ def _build_summary_node(api_key: str, state_container: dict[str, Any], base_url:
             else:
                 rpg["summary"] = summary_delta
 
-            state_container["last_summary_turn"] = current_turn
+            state_container["last_summary_turn"] = end_summary_turn
 
             logger.info("Graph Summary node update complete: %s", summary_delta)
         except Exception as exc:
@@ -534,6 +471,11 @@ def _build_plan_node(api_key: str, state_container: dict[str, Any], base_url: st
         range_ref = get_range_reference(state["messages"], plan_turns_val)
         prev_plan = rpg.get("plan", [])
 
+        last_summary_turn = state_container.get("last_summary_turn", 0)
+
+        start_plan_turn = last_plan_turn + 1
+        end_plan_turn = current_turn
+
         # For test mock compatibility
         _GraphDelegate.get_plan_prompt(
             prev_plan=prev_plan,
@@ -541,11 +483,24 @@ def _build_plan_node(api_key: str, state_container: dict[str, Any], base_url: st
             range_ref=range_ref,
             state=rpg.get("state", {}),
             hidden_state=rpg.get("hidden_state", {}),
-            is_bundle=False,
+            summary=rpg.get("summary", ""),
+            summary_up_to_turn=last_summary_turn,
+            start_turn=start_plan_turn,
+            end_turn=end_plan_turn,
         )
 
-        history_msgs = _get_recent_turn_messages(state["messages"], last_plan_turn)
-        static_prompt = _GraphDelegate.get_static_plan_prompt()
+        from rachel.config import PLAN_INITIAL_NUM_MSGS_TO_INCLUDE
+
+        history_msgs = _get_recent_turn_messages(
+            state["messages"],
+            last_plan_turn,
+            include_dangling_user=True,
+            turn_numbers=state_container.get("turn_numbers"),
+            initial_num_msgs_to_include=PLAN_INITIAL_NUM_MSGS_TO_INCLUDE,
+        )
+        static_prompt = _GraphDelegate.get_static_system_prompt(
+            sandbox_timeout=state_container.get("sandbox_timeout", 2.0),
+        )
         dynamic_directive = _GraphDelegate.get_dynamic_plan_directive(
             prev_plan=prev_plan,
             turns_since_update=turns_since_update,
@@ -553,11 +508,26 @@ def _build_plan_node(api_key: str, state_container: dict[str, Any], base_url: st
             state=rpg.get("state", {}),
             hidden_state=rpg.get("hidden_state", {}),
             summary=rpg.get("summary", ""),
+            summary_up_to_turn=last_summary_turn,
+            start_turn=start_plan_turn,
+            end_turn=end_plan_turn,
         )
 
-        card_content = history_msgs[0].get("content") or ""
-        history_msgs[0]["content"] = f"{card_content}\n\n---\n{static_prompt}".strip()
-        history_msgs.append({"role": "system", "content": dynamic_directive})
+
+        if history_msgs and history_msgs[0].get("role") == "system":
+            orig_sys = history_msgs[0].get("content") or ""
+            history_msgs[0]["content"] = f"{orig_sys}\n\n---\n{static_prompt}".strip()
+        else:
+            history_msgs.insert(0, {"role": "system", "content": static_prompt})
+
+        if history_msgs and history_msgs[-1].get("role") == "user":
+            orig_user = history_msgs[-1].get("content") or ""
+            history_msgs[-1]["content"] = f"{orig_user}\n\n---\n{dynamic_directive}"
+        else:
+            history_msgs.append({"role": "user", "content": dynamic_directive})
+
+        engine = get_sandbox_engine()
+        all_tools = get_all_tools_schema(engine.name)
 
         errors = []
         plan_updated = False
@@ -567,8 +537,8 @@ def _build_plan_node(api_key: str, state_container: dict[str, Any], base_url: st
             if errors:
                 error_context = "\n".join(errors)
                 current_msgs.append({
-                    "role": "system",
-                    "content": f"The previous attempt failed with the following error(s):\n{error_context}\n\nPlease try again and call submit_plan tool with valid items matching schema."
+                    "role": "user",
+                    "content": f"[RETRY DIRECTIVE]: The previous attempt failed with error(s):\n{error_context}\n\nPlease try again and call submit_plan tool with valid items matching schema."
                 })
 
             try:
@@ -578,7 +548,7 @@ def _build_plan_node(api_key: str, state_container: dict[str, Any], base_url: st
                     model=PLAN_MODEL,
                     openai_messages=current_msgs,
                     temperature=PLAN_TEMPERATURE,
-                    tools=[SUBMIT_PLAN_TOOL],
+                    tools=all_tools,
                     tool_choice={"type": "function", "function": {"name": "submit_plan"}},
                     return_tool_calls=True,
                     **session_kwargs,
@@ -668,6 +638,7 @@ def _build_cleanup_node(api_key: str, state_container: dict[str, Any], sandbox_t
         engine = get_sandbox_engine()
         rpg = state_container["rpg_state"]
         current_turn = sum(1 for m in state["messages"] if isinstance(m, AIMessage)) + 1
+        last_cleanup_turn = state_container.get("last_cleanup_turn", 0)
 
         session_id = config.get("configurable", {}).get("session_id") or state_container.get("session_id")
         session_kwargs = {}
@@ -690,15 +661,18 @@ def _build_cleanup_node(api_key: str, state_container: dict[str, Any], sandbox_t
             state=orig_state,
             hidden_state=orig_hidden,
             engine_name=engine.name,
-            is_bundle=False,
         )
 
-        openai_msgs = convert_to_openai_messages(state["messages"])
-        card_content = ""
-        if openai_msgs and openai_msgs[0].get("role") == "system":
-            card_content = openai_msgs[0].get("content") or ""
+        from rachel.config import CLEANUP_INITIAL_NUM_MSGS_TO_INCLUDE
 
-        static_prompt = _GraphDelegate.get_static_cleanup_prompt(engine_name=engine.name)
+        history_msgs = _get_recent_turn_messages(
+            state["messages"],
+            last_cleanup_turn,
+            include_dangling_user=True,
+            turn_numbers=state_container.get("turn_numbers"),
+            initial_num_msgs_to_include=CLEANUP_INITIAL_NUM_MSGS_TO_INCLUDE,
+        )
+        static_prompt = _GraphDelegate.get_static_system_prompt(sandbox_timeout=sandbox_timeout)
         dynamic_directive = _GraphDelegate.get_dynamic_cleanup_directive(
             state=orig_state,
             hidden_state=orig_hidden,
@@ -707,22 +681,30 @@ def _build_cleanup_node(api_key: str, state_container: dict[str, Any], sandbox_t
             engine_name=engine.name,
         )
 
-        msg_0_content = f"{card_content}\n\n---\n{static_prompt}".strip()
-        base_history_msgs = [
-            {"role": "system", "content": msg_0_content},
-            {"role": "system", "content": dynamic_directive},
-        ]
+        if history_msgs and history_msgs[0].get("role") == "system":
+            orig_sys = history_msgs[0].get("content") or ""
+            history_msgs[0]["content"] = f"{orig_sys}\n\n---\n{static_prompt}".strip()
+        else:
+            history_msgs.insert(0, {"role": "system", "content": static_prompt})
+
+        if history_msgs and history_msgs[-1].get("role") == "user":
+            orig_user = history_msgs[-1].get("content") or ""
+            history_msgs[-1]["content"] = f"{orig_user}\n\n---\n{dynamic_directive}"
+        else:
+            history_msgs.append({"role": "user", "content": dynamic_directive})
+
+        all_tools = get_all_tools_schema(engine.name)
 
         errors = []
         cleanup_updated = False
         max_retries = max(1, CLEANUP_MAX_RETRIES)
         for attempt in range(max_retries):
-            history_msgs = [dict(m) for m in base_history_msgs]
+            current_msgs = [dict(m) for m in history_msgs]
             if errors:
                 error_context = "\n".join(errors)
-                history_msgs.append({
-                    "role": "system",
-                    "content": f"[ERROR FROM PREVIOUS CODE RUN]:\n{error_context}\n\nPlease correct your {engine.name.upper()} script and call submit_cleanup tool."
+                current_msgs.append({
+                    "role": "user",
+                    "content": f"[RETRY DIRECTIVE]: The previous attempt failed with error(s):\n{error_context}\n\nPlease correct your {engine.name.upper()} script and call submit_cleanup tool."
                 })
 
             try:
@@ -732,7 +714,7 @@ def _build_cleanup_node(api_key: str, state_container: dict[str, Any], sandbox_t
                     model=CLEANUP_MODEL,
                     openai_messages=history_msgs,
                     temperature=CLEANUP_TEMPERATURE,
-                    tools=[SUBMIT_CLEANUP_TOOL],
+                    tools=all_tools,
                     tool_choice={"type": "function", "function": {"name": "submit_cleanup"}},
                     return_tool_calls=True,
                     **session_kwargs,
@@ -871,11 +853,13 @@ def _should_continue(max_iterations: int):
         last = state["messages"][-1]
         if not isinstance(last, AIMessage):
             return "llm"
-        has_tool_calls = bool(getattr(last, "tool_calls", None))
+        tool_calls = getattr(last, "tool_calls", None) or []
+        has_end_turn = any(tc.get("name") == "end_turn" for tc in tool_calls)
+        has_tool_calls = bool(tool_calls)
         over_limit = state["iteration_count"] >= max_iterations
-        if has_tool_calls and not over_limit:
-            return "tools"
-        return "route_end"
+        if has_end_turn or over_limit or not has_tool_calls:
+            return "route_end"
+        return "tools"
     return _edge
 
 

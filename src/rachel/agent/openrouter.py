@@ -151,6 +151,22 @@ def convert_to_openai_messages(
 ) -> list[dict]:
     """Convert LangChain messages to OpenAI-compatible message dicts."""
     openai_msgs = []
+
+    if turn_numbers is None:
+        computed_turn_numbers = []
+        curr_t = 0
+        for m in messages:
+            if isinstance(m, SystemMessage):
+                computed_turn_numbers.append(None)
+            elif isinstance(m, HumanMessage) or (isinstance(m, dict) and m.get("role") == "user"):
+                curr_t += 1
+                computed_turn_numbers.append(curr_t)
+            elif isinstance(m, AIMessage) or (isinstance(m, dict) and m.get("role") == "assistant"):
+                computed_turn_numbers.append(curr_t if curr_t > 0 else 1)
+            else:
+                computed_turn_numbers.append(curr_t if curr_t > 0 else None)
+        turn_numbers = computed_turn_numbers
+
     current_turn_number = turn_numbers[-1] if turn_numbers else None
     for i, m in enumerate(messages):
         turn_num = None
@@ -166,7 +182,11 @@ def convert_to_openai_messages(
         elif isinstance(m, AIMessage):
             msg: dict[str, Any] = {"role": "assistant"}
             if m.content:
-                msg["content"] = prefix + m.content
+                content_str = str(m.content)
+                if not content_str.startswith("Turn "):
+                    msg["content"] = prefix + content_str
+                else:
+                    msg["content"] = content_str
             if m.tool_calls:
                 msg["tool_calls"] = [
                     {
@@ -190,8 +210,17 @@ def convert_to_openai_messages(
                 "name": m.name,
                 "content": m.content
             })
+        elif isinstance(m, dict):
+            role = m.get("role", "user")
+            content_str = str(m.get("content") or "")
+            if role in ("user", "assistant") and content_str and not content_str.startswith("Turn "):
+                content_str = prefix + content_str
+            openai_msgs.append({**m, "content": content_str})
         else:
-            openai_msgs.append({"role": "user", "content": prefix + m.content})
+            content_str = str(getattr(m, "content", ""))
+            if not content_str.startswith("Turn "):
+                content_str = prefix + content_str
+            openai_msgs.append({"role": "user", "content": content_str})
     return openai_msgs
 
 async def call_llm_streaming(
@@ -200,8 +229,6 @@ async def call_llm_streaming(
     model: str,
     openai_messages: list[dict],
     stream_queue: asyncio.Queue | None,
-    include_plan: bool = False,
-    include_summary: bool = False,
     temperature: float | None = None,
     session_id: str | None = None,
     prompt_cache_key: str | None = None,
@@ -218,8 +245,6 @@ async def call_llm_streaming(
     }
     payload_tools = tools if tools is not None else get_tools_schema(
         get_sandbox_engine().name,
-        include_plan=include_plan,
-        include_summary=include_summary,
     )
     payload: dict[str, Any] = {
         "model": model,

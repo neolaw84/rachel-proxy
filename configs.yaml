@@ -53,6 +53,7 @@ orchestration:
     interval_turns:  8              # k = 10 turns
     trigger_probability: 0.10       # p = 0.10
     bundle_llm: true                # If true, runs inline using main LLM tool calls. If false, runs in separate node.
+    initial_num_msgs_to_include: 4
     max_retries: 3
     llm:
       model: "google/gemini-3.5-flash"
@@ -66,6 +67,7 @@ orchestration:
     interval_turns:  8              # k = 10 turns
     trigger_probability: 0.10       # p = 0.10
     bundle_llm: true                # If true, runs inline using main LLM tool calls. If false, runs in separate node.
+    initial_num_msgs_to_include: 4
     summary_target_words: 200
     llm:
       model: "google/gemini-3.5-flash"
@@ -79,12 +81,14 @@ orchestration:
     interval_turns:  8
     trigger_probability: 0.10
     bundle_llm: true
+    initial_num_msgs_to_include: 4
     max_retries: 3
     llm:
       model: "google/gemini-3.5-flash"
       base_url: "https://openrouter.ai/api/v1/chat/completions"
       include_reasoning: true
       temperature: 0.2
+
 
 
 

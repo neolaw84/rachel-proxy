@@ -50,54 +50,39 @@ def make_tools(state_container: dict[str, Any], sandbox_timeout: float):
         rpg_copy = copy.deepcopy(state_container["rpg_state"])
 
         rpg = state_container["rpg_state"]
-        # If it is the 4-element dict, construct the wrapper for execution
-        is_4_element = isinstance(rpg, dict) and all(k in rpg for k in ("state", "plan", "summary", "hidden_state"))
-        if is_4_element:
-            wrapper = {
-                "state": rpg.get("state", {}),
-                "hidden_state": rpg.get("hidden_state", {}),
-                "plan": rpg.get("plan", []),
-            }
-            updated, output = engine.execute(code, wrapper, sandbox_timeout)
-            if isinstance(updated, dict) and "state" in updated and "hidden_state" in updated:
-                rpg["state"] = updated["state"]
-                rpg["hidden_state"] = updated["hidden_state"]
-                rpg["plan"] = updated.get("plan", [])
-            else:
-                rpg["state"] = updated
-        else:
-            updated, output = engine.execute(code, rpg, sandbox_timeout)
-            state_container["rpg_state"] = updated
+        wrapper = {
+            "state": rpg.get("state", {}),
+            "hidden_state": rpg.get("hidden_state", {}),
+            "plan": rpg.get("plan", []),
+        }
+        updated, output = engine.execute(code, wrapper, sandbox_timeout)
+        if isinstance(updated, dict) and "state" in updated and "hidden_state" in updated:
+            rpg["state"] = updated["state"]
+            rpg["hidden_state"] = updated["hidden_state"]
+            rpg["plan"] = updated.get("plan", [])
+        elif isinstance(updated, dict):
+            rpg["state"] = updated
 
         # Perform post-execution validation checks
         try:
             rpg_current = state_container["rpg_state"]
-            if is_4_element:
-                validate_state_constraints(
-                    rpg_current.get("state", {}),
-                    config.MAX_DEPTH,
-                    config.MAX_WIDTH,
-                    config.MAX_STRING_LENGTH,
-                    "state",
-                    1
-                )
-                validate_state_constraints(
-                    rpg_current.get("hidden_state", {}),
-                    config.MAX_DEPTH,
-                    config.MAX_WIDTH,
-                    config.MAX_STRING_LENGTH,
-                    "hidden_state",
-                    1
-                )
-            else:
-                validate_state_constraints(
-                    rpg_current,
-                    config.MAX_DEPTH,
-                    config.MAX_WIDTH,
-                    config.MAX_STRING_LENGTH,
-                    "state",
-                    1
-                )
+            validate_state_constraints(
+                rpg_current.get("state", {}),
+                config.MAX_DEPTH,
+                config.MAX_WIDTH,
+                config.MAX_STRING_LENGTH,
+                "state",
+                1
+            )
+            validate_state_constraints(
+                rpg_current.get("hidden_state", {}),
+                config.MAX_DEPTH,
+                config.MAX_WIDTH,
+                config.MAX_STRING_LENGTH,
+                "hidden_state",
+                1
+            )
+
         except ValueError as e:
             # Revert any mutations back to the clean pre-execution copy
             state_container["rpg_state"] = rpg_copy
@@ -121,4 +106,51 @@ def make_tools(state_container: dict[str, Any], sandbox_timeout: float):
         description=description,
     )
 
-    return [execute_code_sandbox]
+    def _end_turn() -> str:
+        return "Turn completed."
+
+    end_turn = StructuredTool.from_function(
+        func=_end_turn,
+        name="end_turn",
+        description="Signal that you have completed narrating your story response for the current turn to pass agency back to the user.",
+    )
+
+    def _submit_plan(items: list) -> str:
+        rpg = state_container.get("rpg_state", {})
+        if isinstance(rpg, dict):
+            rpg["plan"] = items
+        return "Plan submitted successfully."
+
+    submit_plan = StructuredTool.from_function(
+        func=_submit_plan,
+        name="submit_plan",
+        description="Submit the updated checklist of story goals and NPC plans as a structured array.",
+    )
+
+    def _submit_summary(summary: str) -> str:
+        rpg = state_container.get("rpg_state", {})
+        if isinstance(rpg, dict):
+            prev = rpg.get("summary", "")
+            if prev:
+                rpg["summary"] = prev.strip() + "\n\n" + summary.strip()
+            else:
+                rpg["summary"] = summary.strip()
+        return "Summary submitted successfully."
+
+    submit_summary = StructuredTool.from_function(
+        func=_submit_summary,
+        name="submit_summary",
+        description="Submit the narrative summary block describing developments.",
+    )
+
+    def _submit_cleanup(code: str) -> str:
+        return _execute_code_sandbox(code)
+
+    submit_cleanup = StructuredTool.from_function(
+        func=_submit_cleanup,
+        name="submit_cleanup",
+        description="Submit code snippet to clean up state and hidden_state variables.",
+    )
+
+    return [execute_code_sandbox, end_turn, submit_plan, submit_summary, submit_cleanup]
+

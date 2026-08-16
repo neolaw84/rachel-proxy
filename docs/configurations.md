@@ -76,6 +76,7 @@ Settings for the narrative planner node that updates your story roadmap checklis
   * `"disabled"`: The planner is never run.
 * **`interval_turns`**: Integer. Trigger frequency if `trigger_type` is periodic (default `10` turns).
 * **`trigger_probability`**: Decimal. Trigger chance if `trigger_type` is probabilistic (default `0.10` or 10%).
+* **`initial_num_msgs_to_include`**: Integer. Number of initial non-system messages (after Message 0) preserved at the prefix of the outgoing messages stream (default `4`).
 * **`bundle_llm`**: **Deprecated/Removed**. All updates are now executed concurrently and synchronously prior to the narrative step using the node's own LLM settings (corresponding to `bundle_llm = false` behavior).
 * **`llm.model`**: Text. The model to use for the planner (default `"google/gemini-3.5-flash"`).
 * **`llm.base_url`**: Text. Completion URL override for the planner model.
@@ -91,9 +92,11 @@ Settings for the summary node that compiles the rolling story recap:
   * `"disabled"`: Summarization is never run.
 * **`interval_turns`**: Integer. Trigger frequency if `trigger_type` is periodic (default `10` turns).
 * **`trigger_probability`**: Decimal. Trigger chance if `trigger_type` is probabilistic (default `0.10` or 10%).
+* **`initial_num_msgs_to_include`**: Integer. Number of initial non-system messages (after Message 0) preserved at the prefix of the outgoing messages stream (default `4`).
 * **`bundle_llm`**: **Deprecated/Removed**. All updates are now executed concurrently and synchronously prior to the narrative step using the node's own LLM settings (corresponding to `bundle_llm = false` behavior).
 * **`summary_target_words`**: Integer. Target word length for the summary block (default `200` words).
 * **`llm.model`**: Text. The model to use for the summarizer (default `"google/gemini-3.5-flash"`).
 * **`llm.base_url`**: Text. Completion URL override for the summarizer model.
 * **`llm.include_reasoning`**: Boolean (`true`/`false`). Enable reasoning support.
 * **`llm.temperature`**: Decimal. Model sampling temperature (default `0.2`).
+

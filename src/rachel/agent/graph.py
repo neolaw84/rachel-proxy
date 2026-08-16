@@ -25,19 +25,17 @@ from rachel.agent.nodes import (
 
 # Exported/delegated for test mock compatibility
 from rachel.agent.prompts import (
-    get_system_instruction,
+    PromptBuilder,
     get_static_system_prompt,
     get_dynamic_turn_directive,
-    get_static_plan_prompt,
     get_dynamic_plan_directive,
-    get_static_summary_prompt,
     get_dynamic_summary_directive,
-    get_static_cleanup_prompt,
     get_dynamic_cleanup_directive,
     get_plan_prompt,
     get_summary_prompt,
     get_cleanup_prompt,
 )
+
 
 async def call_openrouter_direct(*args, **kwargs):
     from rachel.agent import openrouter
@@ -98,8 +96,16 @@ async def run_agent(
     """Run the LangGraph agent for one proxy turn."""
     if turn_number is None:
         turn_number = sum(1 for m in messages if m.get("role") == "assistant") + 1
+    rpg_dict = dict(before_state) if isinstance(before_state, dict) else {}
+    if not all(k in rpg_dict for k in ("state", "hidden_state", "summary", "plan")):
+        rpg_dict = {
+            "state": rpg_dict,
+            "hidden_state": {},
+            "summary": "",
+            "plan": [],
+        }
     state_container: dict[str, Any] = {
-        "rpg_state": dict(before_state),
+        "rpg_state": rpg_dict,
         "current_turn": turn_number,
         "turn_numbers": turn_numbers,
         "last_plan_turn": last_plan_turn,
@@ -137,16 +143,13 @@ async def run_agent(
         PLAN_TRIGGER_TYPE,
         PLAN_INTERVAL_TURNS,
         PLAN_TRIGGER_PROBABILITY,
-        PLAN_BUNDLE_LLM,
         SUMMARY_TRIGGER_TYPE,
         SUMMARY_INTERVAL_TURNS,
         SUMMARY_TRIGGER_PROBABILITY,
-        SUMMARY_BUNDLE_LLM,
         PLAN_SUMMARY_GAP,
         CLEANUP_TRIGGER_TYPE,
         CLEANUP_INTERVAL_TURNS,
         CLEANUP_TRIGGER_PROBABILITY,
-        CLEANUP_BUNDLE_LLM,
         PLAN_CLEANUP_GAP,
     )
     import hashlib
@@ -199,12 +202,6 @@ async def run_agent(
         "plan_fired": plan_fired,
         "summary_fired": summary_fired,
         "cleanup_fired": cleanup_fired,
-        "plan_bundle": PLAN_BUNDLE_LLM,
-        "summary_bundle": SUMMARY_BUNDLE_LLM,
-        "cleanup_bundle": CLEANUP_BUNDLE_LLM,
-        "bundle_plan_fired": plan_fired and PLAN_BUNDLE_LLM,
-        "bundle_summary_fired": summary_fired and SUMMARY_BUNDLE_LLM,
-        "bundle_cleanup_fired": cleanup_fired and CLEANUP_BUNDLE_LLM,
     }
     if session_id:
         config["configurable"]["session_id"] = session_id
