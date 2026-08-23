@@ -3,7 +3,8 @@ Version=1.0
 Type=Application
 Name=RACHEL RPG Agent Proxy
 Comment=Launch RPG Agent Behind Chat Completion Proxy
-Exec=bash -c "$(dirname %k)/launch.sh"
+Exec=bash -c "if [ -f \"$(dirname '%k')/launch.sh\" ]; then bash \"$(dirname '%k')/launch.sh\"; elif [ -f \"$(dirname '%k')/../../launch.sh\" ]; then bash \"$(dirname '%k')/../../launch.sh\"; fi"
 Icon=utilities-terminal
 Terminal=true
 Categories=Development;Game;
+

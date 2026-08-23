@@ -79,7 +79,15 @@ def build_package(platform_name):
             for file in files:
                 abs_path = Path(root) / file
                 rel_path = abs_path.relative_to(build_staging)
-                zf.write(abs_path, arcname=rel_path)
+                zinfo = zipfile.ZipInfo.from_file(abs_path, arcname=str(rel_path))
+                st = abs_path.stat()
+                # Ensure executable bit (0o755) is preserved for shell scripts
+                if file.endswith((".sh", ".command")):
+                    zinfo.external_attr = (0o755 | 0o100000) << 16
+                else:
+                    zinfo.external_attr = (st.st_mode & 0xFFFF) << 16
+                with open(abs_path, "rb") as f:
+                    zf.writestr(zinfo, f.read())
 
     # Cleanup staging
     shutil.rmtree(build_staging.parent)
