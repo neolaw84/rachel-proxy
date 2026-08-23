@@ -24,7 +24,7 @@ def get_version():
     return "0.2.0"
 
 
-def build_package(platform_name):
+def build_package(platform_name, skip_frontend=False):
     version = get_version()
     package_name = f"rpg-agent-v{version}-{platform_name}"
     target_zip = DIST_DIR / f"{package_name}.zip"
@@ -34,12 +34,15 @@ def build_package(platform_name):
     print(f"==================================================")
 
     # 1. Compile frontend local target
-    print("Step 1: Compiling local frontend bundle...")
-    cmd_build = [sys.executable, str(REPO_ROOT / "scripts" / "build_frontend.py"), "--target", "local"]
-    res = subprocess.run(cmd_build, cwd=REPO_ROOT)
-    if res.returncode != 0:
-        print("Error: Frontend build failed.", file=sys.stderr)
-        sys.exit(res.returncode)
+    if not skip_frontend:
+        print("Step 1: Compiling local frontend bundle...")
+        cmd_build = [sys.executable, str(REPO_ROOT / "scripts" / "build_frontend.py"), "--target", "local"]
+        res = subprocess.run(cmd_build, cwd=REPO_ROOT)
+        if res.returncode != 0:
+            print("Error: Frontend build failed.", file=sys.stderr)
+            sys.exit(res.returncode)
+    else:
+        print("Step 1: Skipping frontend compilation (skip_frontend=True)...")
 
     # 2. Assemble release folder
     build_staging = DIST_DIR / "staging" / package_name
@@ -102,15 +105,21 @@ def main():
         default="linux",
         help="Target platform (win, mac, linux, or all)",
     )
+    parser.add_argument(
+        "--skip-frontend",
+        action="store_true",
+        help="Skip rebuilding frontend assets before packaging.",
+    )
     args = parser.parse_args()
 
     platform_map = {"win": "windows", "mac": "macos", "linux": "linux"}
 
     if args.platform == "all":
         for p in ["windows", "macos", "linux"]:
-            build_package(p)
+            build_package(p, skip_frontend=args.skip_frontend)
     else:
-        build_package(platform_map[args.platform])
+        build_package(platform_map[args.platform], skip_frontend=args.skip_frontend)
+
 
 
 if __name__ == "__main__":

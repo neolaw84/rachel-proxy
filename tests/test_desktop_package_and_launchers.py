@@ -69,8 +69,8 @@ def test_build_desktop_package_staging_and_zip(tmp_path, monkeypatch):
     dist_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr("scripts.build_desktop_package.DIST_DIR", dist_dir)
 
-    # Build linux package
-    build_package("linux")
+    # Build linux package without requiring vite / node in isolated python test runner
+    build_package("linux", skip_frontend=True)
 
     version = get_version()
     expected_zip = dist_dir / f"rpg-agent-v{version}-linux.zip"
