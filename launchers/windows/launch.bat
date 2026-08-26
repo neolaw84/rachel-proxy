@@ -11,58 +11,35 @@ if exist "%SCRIPT_DIR%pyproject.toml" (
     cd /d "%SCRIPT_DIR%"
 )
 
-:: Find available Python 3
-set "PYTHON_EXE="
-where py.exe >nul 2>&1
-if %errorlevel% equ 0 (
-    py -3.12 -c "import sys" >nul 2>&1
-    if !errorlevel! equ 0 (
-        set "PYTHON_EXE=py -3.12"
-    ) else (
-        py -3 -c "import sys" >nul 2>&1
-        if !errorlevel! equ 0 (
-            set "PYTHON_EXE=py -3"
-        )
-    )
-)
-if "%PYTHON_EXE%"=="" (
-    where python.exe >nul 2>&1
-    if %errorlevel% equ 0 (
-        set "PYTHON_EXE=python"
-    )
+:: Find standalone executable
+set "EXEC_PATH="
+if exist "bin\rachel-proxy\rachel-proxy.exe" (
+    set "EXEC_PATH=bin\rachel-proxy\rachel-proxy.exe"
+) else if exist "bin\rachel-proxy.exe" (
+    set "EXEC_PATH=bin\rachel-proxy.exe"
+) else if exist "rachel-proxy.exe" (
+    set "EXEC_PATH=rachel-proxy.exe"
+) else if exist "python\python.exe" (
+    set "EXEC_PATH=python\python.exe"
+) else if exist "venv\Scripts\python.exe" (
+    set "EXEC_PATH=venv\Scripts\python.exe"
 )
 
-if "%PYTHON_EXE%"=="" (
-    echo Error: Python is not installed or not added to PATH.
-    echo Please install Python 3.12 or newer: https://www.python.org/downloads/
+if "%EXEC_PATH%"=="" (
+    echo Error: RACHEL standalone executable not found.
+    echo Please ensure the release package was extracted completely.
     pause
     exit /b 1
 )
 
-:: Check if venv exists and is bootstrapped
-if not exist "venv\Scripts\python.exe" (
-    echo First-time setup: Creating virtual environment in .\venv...
-    %PYTHON_EXE% -m venv venv
-    if %errorlevel% neq 0 (
-        echo Failed to create virtual environment.
-        pause
-        exit /b 1
-    )
-    echo Installing RACHEL proxy and dependencies...
-    venv\Scripts\pip.exe install --upgrade pip
-    venv\Scripts\pip.exe install -e .
-    if %errorlevel% neq 0 (
-        echo Failed to install dependencies.
-        pause
-        exit /b 1
-    )
-)
-
-set "PYTHONPATH=src;%PYTHONPATH%"
-
 echo Starting RACHEL Proxy...
-powershell -ExecutionPolicy Bypass -NoProfile -WindowStyle Hidden -Command "Start-Process venv\Scripts\python.exe -ArgumentList '-m uvicorn rachel.proxy:app --host 0.0.0.0 --port 8000' -WindowStyle Hidden"
+if "%EXEC_PATH%"=="venv\Scripts\python.exe" (
+    powershell -ExecutionPolicy Bypass -NoProfile -WindowStyle Hidden -Command "Start-Process '%EXEC_PATH%' -ArgumentList '-m uvicorn rachel.proxy:app --host 0.0.0.0 --port 8000' -WindowStyle Hidden"
+) else (
+    powershell -ExecutionPolicy Bypass -NoProfile -WindowStyle Hidden -Command "Start-Process '%EXEC_PATH%' -WindowStyle Hidden"
+)
 
 timeout /t 2 /nobreak >nul
 start http://localhost:8000
+
 

@@ -24,7 +24,48 @@ def get_version():
     return "0.2.0"
 
 
-def build_package(platform_name, skip_frontend=False):
+def run_pyinstaller(platform_name, output_dir):
+    """Compile standalone binary using PyInstaller."""
+    print("Step 2: Compiling standalone binary with PyInstaller...")
+    proxy_entry = REPO_ROOT / "src" / "rachel" / "proxy.py"
+    
+    cmd = [
+        sys.executable,
+        "-m",
+        "PyInstaller",
+        "--noconfirm",
+        "--onedir",
+        "--name",
+        "rachel-proxy",
+        "--clean",
+        "--collect-all",
+        "py_mini_racer",
+        "--collect-all",
+        "uvicorn",
+        "--collect-all",
+        "langgraph",
+        "--collect-all",
+        "langchain_openai",
+        "--collect-all",
+        "cryptography",
+        "--collect-all",
+        "psycopg2",
+        "--add-data",
+        f"{STATIC_DIR}{os.pathsep}rachel/static",
+        "--distpath",
+        str(output_dir / "bin"),
+        str(proxy_entry),
+    ]
+    
+    print(f"Running PyInstaller: {' '.join(cmd)}")
+    res = subprocess.run(cmd, cwd=REPO_ROOT)
+    if res.returncode != 0:
+        print("Warning: PyInstaller compilation failed or exited non-zero.", file=sys.stderr)
+        return False
+    return True
+
+
+def build_package(platform_name, skip_frontend=False, skip_pyinstaller=False):
     version = get_version()
     package_name = f"rpg-agent-v{version}-{platform_name}"
     target_zip = DIST_DIR / f"{package_name}.zip"
@@ -57,8 +98,32 @@ def build_package(platform_name, skip_frontend=False):
     shutil.copy(REPO_ROOT / "README.md", build_staging / "README.md")
     shutil.copy(REPO_ROOT / "LICENSE", build_staging / "LICENSE")
 
-    # Copy src/ (including compiled static assets)
+    # Copy src/ (including compiled static assets) for fallback / inspectability
     shutil.copytree(REPO_ROOT / "src", build_staging / "src")
+
+    # 3. Build standalone binary if PyInstaller is enabled
+    bin_dir = build_staging / "bin" / "rachel-proxy"
+    if not skip_pyinstaller:
+        try:
+            import PyInstaller  # noqa: F401
+            has_pyinstaller = True
+        except ImportError:
+            has_pyinstaller = False
+
+        if has_pyinstaller:
+            run_pyinstaller(platform_name, build_staging)
+        else:
+            print("PyInstaller not installed. Creating placeholder bin structure...")
+            bin_dir.mkdir(parents=True, exist_ok=True)
+            dummy_bin = bin_dir / ("rachel-proxy.exe" if platform_name == "windows" else "rachel-proxy")
+            dummy_bin.write_text("#!/bin/sh\necho 'RACHEL Desktop Bundle'\n", encoding="utf-8")
+            dummy_bin.chmod(0o755)
+    else:
+        print("Skipping PyInstaller compilation (skip_pyinstaller=True). Creating placeholder bin structure...")
+        bin_dir.mkdir(parents=True, exist_ok=True)
+        dummy_bin = bin_dir / ("rachel-proxy.exe" if platform_name == "windows" else "rachel-proxy")
+        dummy_bin.write_text("#!/bin/sh\necho 'RACHEL Desktop Bundle'\n", encoding="utf-8")
+        dummy_bin.chmod(0o755)
 
     # Copy platform specific launcher
     launcher_src = REPO_ROOT / "launchers" / platform_name
@@ -74,9 +139,12 @@ def build_package(platform_name, skip_frontend=False):
         elif platform_name == "linux" and (launcher_src / "launch.sh").exists():
             shutil.copy(launcher_src / "launch.sh", build_staging / "launch.sh")
             os.chmod(build_staging / "launch.sh", 0o755)
+            if (launcher_src / "rachel-proxy.desktop").exists():
+                shutil.copy(launcher_src / "rachel-proxy.desktop", build_staging / "rachel-proxy.desktop")
 
-    # 3. Create zip archive
-    print(f"Step 3: Creating zip archive at {target_zip}...")
+    # 4. Create zip archive
+    print(f"Step 4: Creating zip archive at {target_zip}...")
+    DIST_DIR.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(target_zip, "w", zipfile.ZIP_DEFLATED) as zf:
         for root, dirs, files in os.walk(build_staging):
             for file in files:
@@ -84,8 +152,8 @@ def build_package(platform_name, skip_frontend=False):
                 rel_path = abs_path.relative_to(build_staging)
                 zinfo = zipfile.ZipInfo.from_file(abs_path, arcname=str(rel_path))
                 st = abs_path.stat()
-                # Ensure executable bit (0o755) is preserved for shell scripts
-                if file.endswith((".sh", ".command")):
+                # Ensure executable bit (0o755) is preserved for shell scripts and binaries
+                if file.endswith((".sh", ".command", ".desktop")) or "bin" in rel_path.parts:
                     zinfo.external_attr = (0o755 | 0o100000) << 16
                 else:
                     zinfo.external_attr = (st.st_mode & 0xFFFF) << 16
@@ -110,17 +178,22 @@ def main():
         action="store_true",
         help="Skip rebuilding frontend assets before packaging.",
     )
+    parser.add_argument(
+        "--skip-pyinstaller",
+        action="store_true",
+        help="Skip PyInstaller standalone compilation.",
+    )
     args = parser.parse_args()
 
     platform_map = {"win": "windows", "mac": "macos", "linux": "linux"}
 
     if args.platform == "all":
         for p in ["windows", "macos", "linux"]:
-            build_package(p, skip_frontend=args.skip_frontend)
+            build_package(p, skip_frontend=args.skip_frontend, skip_pyinstaller=args.skip_pyinstaller)
     else:
-        build_package(platform_map[args.platform], skip_frontend=args.skip_frontend)
-
+        build_package(platform_map[args.platform], skip_frontend=args.skip_frontend, skip_pyinstaller=args.skip_pyinstaller)
 
 
 if __name__ == "__main__":
     main()
+

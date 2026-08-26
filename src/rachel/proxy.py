@@ -23,7 +23,10 @@ def main():
 
     args = parser.parse_args()
 
-    uvicorn.run("rachel.entrypoints.desktop:app", host=args.host, port=args.port, reload=args.reload)
+    if args.reload:
+        uvicorn.run("rachel.entrypoints.desktop:app", host=args.host, port=args.port, reload=True)
+    else:
+        uvicorn.run(app, host=args.host, port=args.port)
 
 
 if __name__ == "__main__":
