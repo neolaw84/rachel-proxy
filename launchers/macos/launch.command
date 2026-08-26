@@ -12,35 +12,29 @@ else
 fi
 cd "$PROJECT_ROOT"
 
-# Ensure Python 3.12+ or fallback python3 is available
-PYTHON_CMD=""
-for cmd in python3.12 python3.13 python3 python; do
-    if command -v "$cmd" > /dev/null 2>&1; then
-        PYTHON_CMD="$cmd"
-        break
-    fi
-done
+# Determine executable binary
+EXEC_BIN=""
+if [ -f "$PROJECT_ROOT/bin/rachel-proxy/rachel-proxy" ]; then
+    EXEC_BIN="$PROJECT_ROOT/bin/rachel-proxy/rachel-proxy"
+elif [ -f "$PROJECT_ROOT/bin/rachel-proxy" ]; then
+    EXEC_BIN="$PROJECT_ROOT/bin/rachel-proxy"
+elif [ -f "$PROJECT_ROOT/rachel-proxy" ]; then
+    EXEC_BIN="$PROJECT_ROOT/rachel-proxy"
+elif [ -f "$PROJECT_ROOT/python/bin/python3" ]; then
+    EXEC_BIN="$PROJECT_ROOT/python/bin/python3 -m uvicorn rachel.proxy:app --host 0.0.0.0 --port 8000"
+elif [ -f "$PROJECT_ROOT/venv/bin/python" ]; then
+    EXEC_BIN="$PROJECT_ROOT/venv/bin/python -m uvicorn rachel.proxy:app --host 0.0.0.0 --port 8000"
+fi
 
-if [ -z "$PYTHON_CMD" ]; then
-    echo "Error: Python 3 is not installed or not in PATH."
-    echo "Please install Python 3.12 or newer: https://www.python.org/downloads/"
+if [ -z "$EXEC_BIN" ]; then
+    echo "Error: RACHEL standalone executable not found."
+    echo "Please ensure the release package was extracted completely."
     read -p "Press Enter to exit..."
     exit 1
 fi
 
-# Ensure virtual environment exists and is bootstrapped
-if [ ! -d "venv" ] || [ ! -f "venv/bin/python" ]; then
-    echo "First-time setup: Creating virtual environment in ./venv using $PYTHON_CMD..."
-    "$PYTHON_CMD" -m venv venv
-    echo "Installing RACHEL proxy and dependencies..."
-    ./venv/bin/pip install --upgrade pip
-    ./venv/bin/pip install -e .
-fi
-
-export PYTHONPATH="src:${PYTHONPATH:-}"
-
 echo "Starting RACHEL Proxy..."
-./venv/bin/python -m uvicorn rachel.proxy:app --host 0.0.0.0 --port 8000 &
+$EXEC_BIN &
 SERVER_PID=$!
 
 cleanup() {
@@ -54,4 +48,5 @@ sleep 2
 open http://localhost:8000 &
 
 wait "$SERVER_PID"
+
 

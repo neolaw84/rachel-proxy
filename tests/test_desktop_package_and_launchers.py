@@ -47,17 +47,16 @@ def test_launcher_shell_syntax():
 
 
 def test_launcher_script_contents():
-    """Verify launcher scripts include critical resiliency keywords."""
+    """Verify launcher scripts include critical standalone executable keywords."""
     linux_content = (LAUNCHERS_DIR / "linux" / "launch.sh").read_text(encoding="utf-8")
     mac_content = (LAUNCHERS_DIR / "macos" / "launch.command").read_text(encoding="utf-8")
     win_content = (LAUNCHERS_DIR / "windows" / "launch.bat").read_text(encoding="utf-8")
 
     for content, name in [(linux_content, "Linux"), (mac_content, "macOS"), (win_content, "Windows")]:
-        assert "pyproject.toml" in content, f"{name} launcher must dynamically detect pyproject.toml"
-        assert "venv" in content, f"{name} launcher must handle virtualenv"
-        assert "pip" in content and "install" in content, f"{name} launcher must bootstrap dependencies"
-        assert "PYTHONPATH" in content, f"{name} launcher must set PYTHONPATH"
-        assert "rachel.proxy:app" in content, f"{name} launcher must invoke rachel.proxy:app"
+        assert "pyproject.toml" in content or "configs.yaml" in content, f"{name} launcher must detect project root"
+        assert "rachel-proxy" in content, f"{name} launcher must invoke rachel-proxy standalone binary"
+        assert "8000" in content, f"{name} launcher must target port 8000"
+
 
 
 def test_build_desktop_package_staging_and_zip(tmp_path, monkeypatch):
@@ -85,7 +84,9 @@ def test_build_desktop_package_staging_and_zip(tmp_path, monkeypatch):
         assert "README.md" in namelist
         assert "LICENSE" in namelist
         assert "launch.sh" in namelist
+        assert "rachel-proxy.desktop" in namelist
         assert "launchers/linux/launch.sh" in namelist
+        assert any(name.startswith("bin/") for name in namelist)
         assert any(name.startswith("src/rachel/") for name in namelist)
 
         # Verify executable permission in zip for launch.sh

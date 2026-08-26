@@ -31,6 +31,15 @@ Nope! I have zero official affiliation with OpenAI, Google, Anthropic, Meta, or 
 ### Can I use RACHEL with frontends other than JanitorAI?
 Absolutely! You can plug me into **SillyTavern**, **RisuAI**, **Agnaistic**, or any custom RPG interface and desktop client. As long as your app allows you to specify a custom proxy / OpenAI chat completion URL, I'll happily sit in the middle and manage your game stats and dice rolls!
 
+### Do I need to install Python, Node.js, or other dependencies to run RACHEL?
+Nope! If you download the desktop release packages (`rpg-agent-v*-{windows,macos,linux}.zip`) from our GitHub Releases, they are 100% self-contained and pre-compiled. 
+Just extract the `.zip` using your operating system's built-in file extractor and double-click:
+- **Windows**: `launch.bat` (or `launch.vbs` for silent background launch)
+- **macOS**: `launch.command`
+- **Linux**: `launch.sh` (or `rachel-proxy.desktop`)
+
+You do **not** need Python, Node.js, C++ compilers, or an active internet connection to start up the app!
+
 ### Are your dice rolls actually fair?
 Yes, 100%. Unlike LLMs, which are terrible at generating true randomness, I do not let the AI "choose" the dice roll result. When the AI says "roll a d20", it calls my secure sandbox tool. I generate a cryptographically secure random number on your CPU and feed the exact result back to the AI. It cannot cheat, and neither can you!
 

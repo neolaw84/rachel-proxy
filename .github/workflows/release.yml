@@ -41,10 +41,19 @@ jobs:
           pytest --cov=src --cov-fail-under=75
 
   build-desktop-packages:
-    name: Build Desktop Release Packages
+    name: Build Desktop Package (${{ matrix.platform }})
     needs: test
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            platform: linux
+          - os: windows-latest
+            platform: win
+          - os: macos-latest
+            platform: mac
     permissions:
       contents: write
     steps:
@@ -64,8 +73,13 @@ jobs:
       - name: Install Frontend Dependencies
         run: npm ci
 
-      - name: Build Desktop Packages
-        run: python scripts/build_desktop_package.py --platform all
+      - name: Install Python & Build Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller -e .
+
+      - name: Build Desktop Package
+        run: python scripts/build_desktop_package.py --platform ${{ matrix.platform }}
 
       - name: Release Artifacts to GitHub Release
         uses: softprops/action-gh-release@v2
