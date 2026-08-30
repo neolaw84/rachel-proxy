@@ -1,17 +1,71 @@
+import json
 import logging
 import multiprocessing
+import os
+import sys
 import traceback
-import json
 from typing import Any
 from rachel.sandbox.base import SandboxEngine
 
 logger = logging.getLogger(__name__)
+
+
+def _ensure_mini_racer_library_path() -> None:
+    """Ensure py_mini_racer can locate its native shared library in all environments (including PyInstaller)."""
+    try:
+        import py_mini_racer
+        import py_mini_racer.py_mini_racer as pmr
+    except ImportError:
+        return
+
+    ext_path = getattr(pmr, "EXTENSION_PATH", None)
+    if ext_path and os.path.exists(ext_path):
+        return
+
+    if sys.platform == "win32":
+        lib_name = "mini_racer.dll"
+    elif sys.platform == "darwin":
+        lib_name = "libmini_racer.dylib"
+    else:
+        libc_name = pmr._get_libc_name() if hasattr(pmr, "_get_libc_name") else "glibc"
+        lib_name = f"libmini_racer.{libc_name}.so"
+
+    candidates: list[str] = []
+
+    # 1. PyInstaller _MEIPASS (root and package directory)
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        candidates.append(os.path.join(meipass, lib_name))
+        candidates.append(os.path.join(meipass, "py_mini_racer", lib_name))
+
+    # 2. Package directory of py_mini_racer
+    pkg_file = getattr(py_mini_racer, "__file__", None)
+    if pkg_file:
+        candidates.append(os.path.join(os.path.dirname(pkg_file), lib_name))
+
+    # 3. Executable directory and _internal folder
+    if getattr(sys, "frozen", False) and sys.executable:
+        exe_dir = os.path.dirname(sys.executable)
+        candidates.append(os.path.join(exe_dir, lib_name))
+        candidates.append(os.path.join(exe_dir, "_internal", lib_name))
+        candidates.append(os.path.join(exe_dir, "_internal", "py_mini_racer", lib_name))
+
+    for cand in candidates:
+        if cand and os.path.exists(cand):
+            pmr.EXTENSION_PATH = cand
+            pmr.EXTENSION_NAME = os.path.basename(cand)
+            if hasattr(pmr.MiniRacer, "ext"):
+                pmr.MiniRacer.ext = None
+            logger.info("Auto-repaired py_mini_racer EXTENSION_PATH to %s", cand)
+            break
+
 
 def _v8_worker(
     code: str,
     state: dict[str, Any],
     result_queue: multiprocessing.Queue,
 ) -> None:
+    _ensure_mini_racer_library_path()
     from py_mini_racer import MiniRacer
 
     # Redefine console.log to redirect prints to our logs buffer

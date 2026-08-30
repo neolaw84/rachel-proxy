@@ -113,3 +113,36 @@ def test_build_desktop_package_staging_and_zip(tmp_path, monkeypatch):
     res = subprocess.run(bash_test_cmd, capture_output=True, text=True)
     assert res.returncode == 0
     assert "ROOT_FOUND" in res.stdout
+
+
+def test_windows_launcher_foreground_and_diagnostics():
+    """Verify windows launch.bat runs attached with user instructions and diagnostics."""
+    win_content = (LAUNCHERS_DIR / "windows" / "launch.bat").read_text(encoding="utf-8")
+    assert "WindowStyle Hidden" not in win_content, "launch.bat must not detach or hide console"
+    assert "Ctrl+C" in win_content, "launch.bat must document how to stop the server"
+    assert "title RACHEL Proxy" in win_content, "launch.bat must set console title"
+    assert "start \"\" http://localhost:8000" in win_content, "launch.bat must launch browser in parallel"
+    assert "pause" in win_content, "launch.bat must pause on error so logs are readable"
+
+
+def test_ensure_mini_racer_library_path_self_healing(monkeypatch, tmp_path):
+    """Verify _ensure_mini_racer_library_path restores valid EXTENSION_PATH when misconfigured."""
+    import py_mini_racer
+    import py_mini_racer.py_mini_racer as pmr
+    from rachel.sandbox.v8_engine import _ensure_mini_racer_library_path
+
+    orig_path = getattr(pmr, "EXTENSION_PATH", None)
+
+    try:
+        # Simulate missing path error
+        pmr.EXTENSION_PATH = str(tmp_path / "non_existent_mini_racer.dll")
+
+        _ensure_mini_racer_library_path()
+
+        # Should be restored to a path that exists
+        assert pmr.EXTENSION_PATH is not None
+        assert os.path.exists(pmr.EXTENSION_PATH), f"Repaired path does not exist: {pmr.EXTENSION_PATH}"
+    finally:
+        pmr.EXTENSION_PATH = orig_path
+        if hasattr(pmr.MiniRacer, "ext"):
+            pmr.MiniRacer.ext = None
