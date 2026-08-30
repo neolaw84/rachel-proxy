@@ -52,16 +52,53 @@ def run_pyinstaller(platform_name, output_dir):
         "psycopg2",
         "--add-data",
         f"{STATIC_DIR}{os.pathsep}rachel/static",
+    ]
+
+    # Explicitly add py_mini_racer native binaries to bundle root (.) to satisfy legacy and modern MEIPASS lookups
+    try:
+        import py_mini_racer
+        pmr_dir = Path(py_mini_racer.__file__).parent
+        for pattern in ("*.dll", "*.so", "*.dylib"):
+            for lib_path in pmr_dir.glob(pattern):
+                cmd.extend(["--add-binary", f"{lib_path}{os.pathsep}."])
+    except Exception as e:
+        print(f"Notice: Could not inspect py_mini_racer directory for explicit binary mapping: {e}")
+
+    cmd.extend([
         "--distpath",
         str(output_dir / "bin"),
         str(proxy_entry),
-    ]
+    ])
     
     print(f"Running PyInstaller: {' '.join(cmd)}")
     res = subprocess.run(cmd, cwd=REPO_ROOT)
     if res.returncode != 0:
         print("Warning: PyInstaller compilation failed or exited non-zero.", file=sys.stderr)
         return False
+
+    # Post-build check: Ensure native library symmetry between _internal root and _internal/py_mini_racer
+    bin_app_dir = output_dir / "bin" / "rachel-proxy"
+    internal_dir = bin_app_dir / "_internal"
+    target_dirs = [internal_dir, bin_app_dir] if internal_dir.exists() else [bin_app_dir]
+
+    for base_dir in target_dirs:
+        pmr_sub = base_dir / "py_mini_racer"
+        for pattern in ("*.dll", "*.so", "*.dylib"):
+            # If in package subdir but not in base dir, copy to base dir
+            if pmr_sub.exists():
+                for f in pmr_sub.glob(pattern):
+                    dest = base_dir / f.name
+                    if not dest.exists():
+                        shutil.copy2(f, dest)
+                        print(f"Synced {f.name} to {base_dir}")
+            # If in base dir but not in package subdir, copy to package subdir
+            for f in base_dir.glob(pattern):
+                pmr_sub.mkdir(parents=True, exist_ok=True)
+                dest = pmr_sub / f.name
+                if not dest.exists():
+                    shutil.copy2(f, dest)
+                    print(f"Synced {f.name} to {pmr_sub}")
+
     return True
 
 
