@@ -18,12 +18,12 @@ state:
 
 sandbox:
   # Wall-clock timeout (seconds) for each code execution inside the sandbox.
-  timeout_seconds: 8.0
+  timeout_seconds: 4.0
 
 langgraph:
   # Maximum LLM ↔ Tool round-trips per request before the graph is forced
   # to stop.  Set to 6 so a stuck loop cannot spin indefinitely.
-  max_iterations: 8
+  max_iterations: 4
 
 llm:
   # The full completions API endpoint URL.
