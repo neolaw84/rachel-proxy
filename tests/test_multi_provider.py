@@ -21,6 +21,13 @@ def test_cors_headers():
     )
     assert res.headers.get("access-control-allow-origin") == "https://janitorai.com"
 
+    # Wyvern origin
+    res_wyvern = client.options(
+        "/v1/chat/completions",
+        headers={"Origin": "https://app.wyvern.chat", "Access-Control-Request-Method": "POST"}
+    )
+    assert res_wyvern.headers.get("access-control-allow-origin") == "https://app.wyvern.chat"
+
     # Localhost origin
     res_local = client.options(
         "/v1/chat/completions",
