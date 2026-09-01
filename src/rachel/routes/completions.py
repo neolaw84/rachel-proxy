@@ -384,7 +384,7 @@ async def proxy_chat_completions(
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Invalid JSON body: {exc}") from exc
 
-    logger.info(
+    logger.debug(
         "Received chat completion payload from client:\n%s",
         _json.dumps(payload, indent=2, ensure_ascii=False),
     )
