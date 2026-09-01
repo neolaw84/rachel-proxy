@@ -63,7 +63,12 @@ def create_desktop_app() -> FastAPI:
 
     app_instance.add_middleware(
         CORSMiddleware,
-        allow_origins=["https://janitorai.com"],
+        allow_origins=[
+            "https://janitorai.com",
+            "https://app.wyvern.chat",
+            "https://app.wyvern.chat/sim",
+            "https://wyvern.chat",
+        ],
         allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:[0-9]+)?$",
         allow_credentials=True,
         allow_methods=["*"],
