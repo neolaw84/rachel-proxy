@@ -7,6 +7,7 @@ const PROVIDER_NAMES = {
   'openai_byok': 'OpenAI (BYOK Key)',
   'gemini_byok': 'Google Gemini (BYOK Key)',
   'deepseek_byok': 'DeepSeek (BYOK Key)',
+  'localhost_byok': 'Localhost / Ollama (OpenAI-Compatible)',
 };
 
 export function renderProxyStatus(container, { onStatusLoaded }) {
@@ -30,9 +31,13 @@ export function renderProxyStatus(container, { onStatusLoaded }) {
     apiFetch('/v1/status')
       .then((res) => res.json())
       .then((d) => {
+        let keyText = d.provider_key_set ? '✓ Set' : '✗ Missing';
+        if (d.active_provider === 'localhost_byok' && d.provider_key_set) {
+          keyText = '✓ Ready';
+        }
         const cards = [
           { label: 'Active Provider', value: PROVIDER_NAMES[d.active_provider] || d.active_provider },
-          { label: 'Provider Key', value: d.provider_key_set ? '✓ Set' : '✗ Missing', cls: d.provider_key_set ? 'ok' : 'err' },
+          { label: 'Provider Key', value: keyText, cls: d.provider_key_set ? 'ok' : 'err' },
           { label: 'Sandbox Engine', value: d.sandbox_engine || '—' },
           { label: 'Sandbox Timeout', value: d.sandbox_timeout + 's' },
           { label: 'Max Iterations', value: d.max_iterations },

@@ -12,6 +12,7 @@ import abc
 import datetime
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,7 @@ DEFAULT_PROVIDER_BASE_URLS = {
     "openai_byok": "https://api.openai.com/v1/chat/completions",
     "gemini_byok": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
     "deepseek_byok": "https://api.deepseek.com/chat/completions",
+    "localhost_byok": os.environ.get("LOCAL_LLM_BASE_URL", "http://localhost:11434/v1/chat/completions"),
 }
 
 DEFAULT_PROVIDER_MODELS = {
@@ -33,6 +35,7 @@ DEFAULT_PROVIDER_MODELS = {
     "openai_byok": "gpt-4o-mini",
     "gemini_byok": "gemini-2.5-flash",
     "deepseek_byok": "deepseek-chat",
+    "localhost_byok": "llama3.2",
 }
 
 
@@ -69,6 +72,22 @@ class BaseSettingsStorage(abc.ABC):
         """Set tenant-configured reasoning format override."""
         pass
 
+    def get_localhost_key_not_needed(self) -> bool:
+        """Return whether API key is not needed for localhost_byok provider (defaults to True)."""
+        return True
+
+    def set_localhost_key_not_needed(self, enabled: bool) -> None:
+        """Set whether API key is not needed for localhost_byok provider."""
+        pass
+
+    def get_localhost_base_url(self) -> str | None:
+        """Return tenant-configured custom localhost base URL, if any."""
+        return None
+
+    def set_localhost_base_url(self, base_url: str | None) -> None:
+        """Set tenant-configured custom localhost base URL."""
+        pass
+
     @abc.abstractmethod
     def get_credentials(self) -> dict[str, str]:
         """Return map of provider_key -> secret_api_key."""
@@ -84,7 +103,13 @@ class BaseSettingsStorage(abc.ABC):
         active = self.get_active_provider()
         creds = self.get_credentials()
         api_key = creds.get(active)
-        base_url = DEFAULT_PROVIDER_BASE_URLS.get(active, DEFAULT_PROVIDER_BASE_URLS["openrouter_byok"])
+        if active == "localhost_byok":
+            if self.get_localhost_key_not_needed():
+                api_key = api_key or "not-needed"
+            custom_local_url = self.get_localhost_base_url()
+            base_url = custom_local_url.strip() if custom_local_url and custom_local_url.strip() else DEFAULT_PROVIDER_BASE_URLS["localhost_byok"]
+        else:
+            base_url = DEFAULT_PROVIDER_BASE_URLS.get(active, DEFAULT_PROVIDER_BASE_URLS["openrouter_byok"])
         custom_default = self.get_default_model()
         default_model = custom_default or DEFAULT_PROVIDER_MODELS.get(active, "google/gemini-3.5-flash")
         return active, base_url, api_key, default_model
@@ -96,6 +121,8 @@ class BaseSettingsStorage(abc.ABC):
             "active_provider": self.get_active_provider(),
             "default_model": self.get_default_model(),
             "reasoning_format": self.get_reasoning_format(),
+            "localhost_key_not_needed": self.get_localhost_key_not_needed(),
+            "localhost_base_url": self.get_localhost_base_url(),
         }
 
 
@@ -156,6 +183,8 @@ class FileSettingsStorage(BaseSettingsStorage):
                 "active_provider": "openrouter_byok",
                 "default_model": None,
                 "reasoning_format": None,
+                "localhost_key_not_needed": True,
+                "localhost_base_url": None,
                 "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 "credentials": {},
             }
@@ -194,6 +223,26 @@ class FileSettingsStorage(BaseSettingsStorage):
     def set_reasoning_format(self, reasoning_format: str | None) -> None:
         bucket = self._get_tenant_bucket()
         bucket["reasoning_format"] = reasoning_format
+        bucket["updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        self._save()
+
+    def get_localhost_key_not_needed(self) -> bool:
+        bucket = self._get_tenant_bucket()
+        return bucket.get("localhost_key_not_needed", True)
+
+    def set_localhost_key_not_needed(self, enabled: bool) -> None:
+        bucket = self._get_tenant_bucket()
+        bucket["localhost_key_not_needed"] = bool(enabled)
+        bucket["updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        self._save()
+
+    def get_localhost_base_url(self) -> str | None:
+        bucket = self._get_tenant_bucket()
+        return bucket.get("localhost_base_url")
+
+    def set_localhost_base_url(self, base_url: str | None) -> None:
+        bucket = self._get_tenant_bucket()
+        bucket["localhost_base_url"] = str(base_url).strip() if base_url and str(base_url).strip() else None
         bucket["updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
         self._save()
 
@@ -291,6 +340,41 @@ class RelationalSettingsStorage(BaseSettingsStorage):
                 session.add(setting)
             else:
                 setting.reasoning_format = reasoning_format
+            session.commit()
+
+    def get_localhost_key_not_needed(self) -> bool:
+        from rachel.core.db import TenantSetting
+        with self.SessionMaker() as session:
+            setting = session.query(TenantSetting).filter_by(tenant_id=self.tenant_id).first()
+            return setting.localhost_key_not_needed if setting and setting.localhost_key_not_needed is not None else True
+
+    def set_localhost_key_not_needed(self, enabled: bool) -> None:
+        from rachel.core.db import TenantSetting
+        with self.SessionMaker() as session:
+            setting = session.query(TenantSetting).filter_by(tenant_id=self.tenant_id).first()
+            if not setting:
+                setting = TenantSetting(tenant_id=self.tenant_id, localhost_key_not_needed=bool(enabled))
+                session.add(setting)
+            else:
+                setting.localhost_key_not_needed = bool(enabled)
+            session.commit()
+
+    def get_localhost_base_url(self) -> str | None:
+        from rachel.core.db import TenantSetting
+        with self.SessionMaker() as session:
+            setting = session.query(TenantSetting).filter_by(tenant_id=self.tenant_id).first()
+            return setting.localhost_base_url if setting else None
+
+    def set_localhost_base_url(self, base_url: str | None) -> None:
+        from rachel.core.db import TenantSetting
+        cleaned = str(base_url).strip() if base_url and str(base_url).strip() else None
+        with self.SessionMaker() as session:
+            setting = session.query(TenantSetting).filter_by(tenant_id=self.tenant_id).first()
+            if not setting:
+                setting = TenantSetting(tenant_id=self.tenant_id, localhost_base_url=cleaned)
+                session.add(setting)
+            else:
+                setting.localhost_base_url = cleaned
             session.commit()
 
     def get_credentials(self) -> dict[str, str]:
