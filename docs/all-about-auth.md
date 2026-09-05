@@ -116,6 +116,9 @@ RACHEL supports multiple active providers and multiple authentication methods fo
 4. **OpenAI (BYOK API Key)**: Direct API key (`sk-...`) for `api.openai.com`.
 5. **Google Gemini (BYOK API Key)**: Direct API key for `generativelanguage.googleapis.com`.
 6. **DeepSeek (BYOK API Key)**: Direct API key for `api.deepseek.com`.
+7. **Localhost / Ollama / LM Studio (`localhost_byok`)**: Connects to OpenAI-compatible local servers (defaulting to `http://localhost:11434/v1/chat/completions`, overridable via `LOCAL_LLM_BASE_URL`). Features a "Key Not Needed" toggle (defaulting to `true`):
+   - **Toggle ON**: Automatically uses dummy key `"not-needed"` to satisfy pre-flight proxy bearer token checks without requiring local authentication.
+   - **Toggle OFF**: Strictly enforces that an explicit API key is saved in credentials storage (for local servers requiring authentication, e.g. vLLM with `--api-key`).
 
 > [!NOTE]
 > **Multiple Accounts / Provider Instances**: A single tenant may configure multiple credentials (for example, two separate OpenRouter accounts or both direct keys and provisioned keys). The Admin Console allows selecting one **Active Provider** for completions dispatch.

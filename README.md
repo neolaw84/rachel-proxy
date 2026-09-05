@@ -1,16 +1,6 @@
----
-title: RACHEL (rachel-proxy)
-emoji: 🎲
-colorFrom: red
-colorTo: blue
-sdk: docker
-app_port: 7860
-pinned: false
----
-
 # RACHEL (rachel-proxy)
 
-**RACHEL** (**R**pg **A**gent **CH**at **E**valuation **L**oop) is a FastAPI proxy that sits between JanitorAI (or any OpenAI-compatible client) and LLM completion providers (OpenRouter, OpenAI, Google Gemini, DeepSeek), running request payloads through a stateful LangGraph agent with a secure V8 code sandbox containing dice and contest RNG helper functions.
+**RACHEL** (**R**pg **A**gent **CH**at **E**valuation **L**oop) is an Agentic Harness Middleware that sits between an OpenAI-compatible chat client front-end (such as Janitor AI, Wyvern Chat etc.) and LLM completion providers (OpenRouter, OpenAI, Google Gemini, DeepSeek), running request payloads through a stateful LangGraph agent with a secure V8 code sandbox containing dice and contest RNG helper functions.
 
 * [Why Use RACHEL?](docs/why-rachel.md) — Core features, benefits, assumptions, and design philosophies.
 * [All About Sessions](docs/all-about-sessions.md) — How session IDs are resolved and managed via API endpoints.

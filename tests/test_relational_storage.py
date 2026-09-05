@@ -161,3 +161,30 @@ def test_relational_settings_storage(sqlite_engine):
     assert details[1] == "https://api.openai.com/v1/chat/completions"
     assert details[2] == "sk-proj-test12345"
     assert details[3] == "gpt-4o-mini"
+
+    # Test localhost_byok with key_not_needed toggle
+    assert settings.get_localhost_key_not_needed() is True
+    settings.set_active_provider("localhost_byok")
+    local_details = settings.get_active_provider_details()
+    assert local_details[0] == "localhost_byok"
+    assert "localhost:11434" in local_details[1]
+    assert local_details[2] == "not-needed"
+    assert local_details[3] == "llama3.2"
+
+    # Toggle to False
+    settings.set_localhost_key_not_needed(False)
+    assert settings.get_localhost_key_not_needed() is False
+    local_details_nokey = settings.get_active_provider_details()
+    assert local_details_nokey[2] is None
+
+    # Set explicit key while toggle is False
+    settings.set_credential("localhost_byok", "sk-local-secret")
+    local_details_explicit = settings.get_active_provider_details()
+    assert local_details_explicit[2] == "sk-local-secret"
+
+    # Custom localhost base URL in relational storage
+    assert settings.get_localhost_base_url() is None
+    settings.set_localhost_base_url("http://localhost:8080/v1/chat/completions")
+    assert settings.get_localhost_base_url() == "http://localhost:8080/v1/chat/completions"
+    details_custom = settings.get_active_provider_details()
+    assert details_custom[1] == "http://localhost:8080/v1/chat/completions"

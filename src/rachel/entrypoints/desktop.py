@@ -68,6 +68,8 @@ def create_desktop_app() -> FastAPI:
             "https://app.wyvern.chat",
             "https://app.wyvern.chat/sim",
             "https://wyvern.chat",
+            "https://jessicaai.online",
+            "https://www.jessicaai.online",
         ],
         allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:[0-9]+)?$",
         allow_credentials=True,

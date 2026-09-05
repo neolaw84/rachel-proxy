@@ -86,6 +86,8 @@ class TenantSetting(Base):
     active_provider: Column[str] = Column(String(64), nullable=False, default="openrouter_byok")
     default_model: Column[str | None] = Column(String(255), nullable=True)
     reasoning_format: Column[str | None] = Column(String(64), nullable=True)
+    localhost_key_not_needed: Column[bool] = Column(Boolean, nullable=False, default=True)
+    localhost_base_url: Column[str | None] = Column(String(512), nullable=True)
     updated_at: Column[datetime.datetime] = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

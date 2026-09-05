@@ -1,5 +1,6 @@
 """LangChain Tool definitions for the RPG Agent."""
 
+import json
 import logging
 import random
 from typing import Any
@@ -63,6 +64,7 @@ def make_tools(state_container: dict[str, Any], sandbox_timeout: float):
         elif isinstance(updated, dict):
             rpg["state"] = updated
 
+        validation_error = False
         # Perform post-execution validation checks
         try:
             rpg_current = state_container["rpg_state"]
@@ -84,6 +86,7 @@ def make_tools(state_container: dict[str, Any], sandbox_timeout: float):
             )
 
         except ValueError as e:
+            validation_error = True
             # Revert any mutations back to the clean pre-execution copy
             state_container["rpg_state"] = rpg_copy
             
@@ -96,6 +99,17 @@ def make_tools(state_container: dict[str, Any], sandbox_timeout: float):
                 output = f"{output}\n{validation_error_msg}"
             else:
                 output = validation_error_msg
+
+        if not validation_error:
+            rpg_current = state_container["rpg_state"]
+            state_snapshot = (
+                f"\n\n[Updated Game State]:\n"
+                f"State:\n{json.dumps(rpg_current.get('state', {}), indent=2, ensure_ascii=False)}\n\n"
+                f"Hidden State:\n{json.dumps(rpg_current.get('hidden_state', {}), indent=2, ensure_ascii=False)}\n\n"
+                f"Plan:\n{json.dumps(rpg_current.get('plan', []), indent=2, ensure_ascii=False)}"
+            )
+            base_output = (output or "").strip() or "(no output)"
+            output = f"{base_output}{state_snapshot}"
 
         logger.info("Sandbox executed (%s). Output:\n%s", engine.name, output or "<no output>")
         return output or "(no output)"

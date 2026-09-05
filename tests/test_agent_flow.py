@@ -168,3 +168,103 @@ async def test_end_turn_tool_call_routing(mock_streaming):
     assert mock_streaming.call_count == 1
     assert result["content"] == "I have narrated the scene."
 
+
+@pytest.mark.asyncio
+async def test_multi_round_message_structure_and_tool_state_expansion():
+    """Verify that in multi-round execution:
+    1. In Round 1, the user message contains the directive and is cached.
+    2. In Round 2, the user message is identical to Round 1 (reused from cache).
+    3. In Round 2, the message sequence ends with the 'tool' role (NO synthetic user message).
+    4. The ToolMessage contains [Updated Game State] with mutated state, hidden_state, and plan.
+    """
+    import copy
+    captured_calls = []
+
+    async def mock_streaming(*args, **kwargs):
+        openai_messages = kwargs.get("openai_messages", [])
+        captured_calls.append(copy.deepcopy(openai_messages))
+
+        if len(captured_calls) == 1:
+            # Round 1: Model calls execute_code_sandbox to drink potion and update plan status
+            return (
+                "Drinking a potion...",
+                None,
+                [{
+                    "id": "call_potion_1",
+                    "type": "function",
+                    "function": {
+                        "name": "execute_code_sandbox",
+                        "arguments": json.dumps({"code": "state.hp = 95; hidden_state.buff = 'regen'; update_plan_status([{id: 1, status: 'completed'}]);"})
+                    }
+                }]
+            )
+        else:
+            # Round 2: Model finishes the turn
+            return (
+                "You feel revitalized! Your wounds heal completely.",
+                None,
+                [{
+                    "id": "call_end_turn_1",
+                    "type": "function",
+                    "function": {
+                        "name": "end_turn",
+                        "arguments": "{}"
+                    }
+                }]
+            )
+
+    before_state = {
+        "state": {"hp": 50},
+        "hidden_state": {"secret": 123},
+        "plan": [{"id": 1, "text": "rest", "status": "to-do"}],
+        "summary": "Previous adventures."
+    }
+    messages = [{"role": "user", "content": "I drink the potion."}]
+
+    with patch("rachel.agent.graph.call_openrouter_streaming", side_effect=mock_streaming):
+        result = await run_agent(
+            messages=messages,
+            before_state=before_state,
+            api_key="mock_key",
+            base_url="https://mock-openrouter/api/v1/chat/completions",
+            model="mock-model",
+            sandbox_timeout=1.0,
+            max_iterations=5,
+        )
+
+    # 1. Assert two rounds occurred
+    assert len(captured_calls) == 2
+
+    # 2. Round 1 checks
+    round1_msgs = captured_calls[0]
+    r1_user_msgs = [m for m in round1_msgs if m.get("role") == "user"]
+    assert len(r1_user_msgs) == 1
+    r1_user_content = r1_user_msgs[0]["content"]
+    assert "I drink the potion." in r1_user_content
+    assert "[RPG DIRECTIVE & GAME STATE" in r1_user_content
+    assert '"hp": 50' in r1_user_content
+
+    # 3. Round 2 checks
+    round2_msgs = captured_calls[1]
+    # Trailing message MUST be role 'tool', NOT a synthetic 'user' message!
+    assert round2_msgs[-1]["role"] == "tool"
+    assert round2_msgs[-1]["tool_call_id"] == "call_potion_1"
+
+    # Verify tool message has stdout + [Updated Game State] snapshot
+    tool_content = round2_msgs[-1]["content"]
+    assert "[Updated Game State]:" in tool_content
+    assert '"hp": 95' in tool_content
+    assert '"buff": "regen"' in tool_content
+    assert '"text": "rest"' in tool_content
+
+    # Verify the user message in Round 2 is bitwise identical to Round 1 (reused from cache)
+    r2_user_msgs = [m for m in round2_msgs if m.get("role") == "user"]
+    assert len(r2_user_msgs) == 1
+    assert r2_user_msgs[0]["content"] == r1_user_content
+
+    # 4. Result checks
+    assert result["content"] == "You feel revitalized! Your wounds heal completely."
+    assert result["after_state"]["state"]["hp"] == 95
+    assert result["after_state"]["hidden_state"]["buff"] == "regen"
+
+

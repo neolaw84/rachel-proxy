@@ -28,6 +28,13 @@ def test_cors_headers():
     )
     assert res_wyvern.headers.get("access-control-allow-origin") == "https://app.wyvern.chat"
 
+    # JessicaAI origin
+    res_jessica = client.options(
+        "/v1/chat/completions",
+        headers={"Origin": "https://jessicaai.online", "Access-Control-Request-Method": "POST"}
+    )
+    assert res_jessica.headers.get("access-control-allow-origin") == "https://jessicaai.online"
+
     # Localhost origin
     res_local = client.options(
         "/v1/chat/completions",
@@ -79,6 +86,154 @@ def test_provider_management_endpoints(tmp_path, monkeypatch):
     status_data = status_res.json()
     assert status_data["active_provider"] == "deepseek_byok"
     assert status_data["provider_key_set"] is True
+
+    # Test localhost_byok in providers
+    assert "localhost_byok" in data["providers"]
+    assert "localhost:11434" in data["providers"]["localhost_byok"]["base_url"]
+    assert data["providers"]["localhost_byok"]["default_model"] == "llama3.2"
+    assert data["localhost_key_not_needed"] is True
+
+    # Toggle localhost-key-not-needed endpoint
+    toggle_res = client.post(
+        "/v1/providers/localhost-key-not-needed",
+        headers=AUTH_HEADERS,
+        json={"enabled": False},
+    )
+    assert toggle_res.status_code == 200
+    assert toggle_res.json()["localhost_key_not_needed"] is False
+    assert storage.get_localhost_key_not_needed() is False
+
+    # Switch active provider to localhost_byok with key_not_needed=False and no key
+    client.post("/v1/providers/active", headers=AUTH_HEADERS, json={"provider": "localhost_byok"})
+    status_res2 = client.get("/v1/status", headers=AUTH_HEADERS)
+    assert status_res2.json()["active_provider"] == "localhost_byok"
+    assert status_res2.json()["provider_key_set"] is False
+
+    # Toggle localhost-key-not-needed back to True
+    toggle_res2 = client.post(
+        "/v1/providers/localhost-key-not-needed",
+        headers=AUTH_HEADERS,
+        json={"enabled": True},
+    )
+    assert toggle_res2.status_code == 200
+    assert toggle_res2.json()["localhost_key_not_needed"] is True
+    status_res3 = client.get("/v1/status", headers=AUTH_HEADERS)
+    assert status_res3.json()["provider_key_set"] is True
+
+
+def test_localhost_byok_completion_dispatch_behavior(tmp_path, monkeypatch):
+    """Test localhost_byok completion dispatch behavior under toggle ON, toggle OFF, and explicit key."""
+    from unittest.mock import AsyncMock, patch
+    from rachel.core import settings_storage
+
+    storage = settings_storage.FileSettingsStorage(tenant_id="local", storage_dir=str(tmp_path))
+    storage.set_active_provider("localhost_byok")
+    monkeypatch.setattr("rachel.routes.system.get_settings_storage", lambda *a, **kw: storage)
+    monkeypatch.setattr("rachel.routes.completions.get_settings_storage", lambda *a, **kw: storage)
+
+    mock_agent_result = {
+        "content": "Local response",
+        "reasoning_content": "",
+        "after_state": {},
+    }
+
+    # 1. Toggle ON + No key -> should succeed using dummy key 'not-needed'
+    storage.set_localhost_key_not_needed(True)
+    with patch("rachel.routes.completions.run_agent", new_callable=AsyncMock) as mock_agent:
+        mock_agent.return_value = mock_agent_result
+        res = client.post(
+            "/v1/chat/completions",
+            headers=AUTH_HEADERS,
+            json={"messages": [{"role": "user", "content": "hello local"}]},
+        )
+        assert res.status_code == 200
+        mock_agent.assert_called_once()
+        call_kwargs = mock_agent.call_args.kwargs
+        assert call_kwargs["api_key"] == "not-needed"
+        assert "localhost:11434" in call_kwargs["base_url"]
+        assert call_kwargs["model"] == "llama3.2"
+
+    # 2. Toggle OFF + No key -> should return RACHEL HTTP 400 pre-flight error
+    storage.set_localhost_key_not_needed(False)
+    with patch("rachel.routes.completions.run_agent", new_callable=AsyncMock) as mock_agent:
+        res = client.post(
+            "/v1/chat/completions",
+            headers=AUTH_HEADERS,
+            json={"messages": [{"role": "user", "content": "hello local"}]},
+        )
+        assert res.status_code == 400
+        assert "No API key configured for active provider 'localhost_byok'" in res.json()["detail"]
+        mock_agent.assert_not_called()
+
+    # 3. Toggle OFF + User explicitly entered a key -> should succeed using configured key
+    storage.set_credential("localhost_byok", "sk-custom-vllm-key")
+    with patch("rachel.routes.completions.run_agent", new_callable=AsyncMock) as mock_agent:
+        mock_agent.return_value = mock_agent_result
+        res = client.post(
+            "/v1/chat/completions",
+            headers=AUTH_HEADERS,
+            json={"messages": [{"role": "user", "content": "hello local"}]},
+        )
+        assert res.status_code == 200
+        mock_agent.assert_called_once()
+        assert mock_agent.call_args.kwargs["api_key"] == "sk-custom-vllm-key"
+
+    # 4. Toggle OFF + User explicitly entered string 'not-needed' -> should succeed using 'not-needed'
+    storage.set_credential("localhost_byok", "not-needed")
+    with patch("rachel.routes.completions.run_agent", new_callable=AsyncMock) as mock_agent:
+        mock_agent.return_value = mock_agent_result
+        res = client.post(
+            "/v1/chat/completions",
+            headers=AUTH_HEADERS,
+            json={"messages": [{"role": "user", "content": "hello local"}]},
+        )
+        assert res.status_code == 200
+        mock_agent.assert_called_once()
+        assert mock_agent.call_args.kwargs["api_key"] == "not-needed"
+
+    # 5. Custom Localhost Base URL endpoint and dispatch
+    # Invalid URL format
+    res_bad = client.post(
+        "/v1/providers/localhost-base-url",
+        headers=AUTH_HEADERS,
+        json={"base_url": "ftp://not-http"},
+    )
+    assert res_bad.status_code == 400
+
+    # Set custom LM Studio URL
+    res_url = client.post(
+        "/v1/providers/localhost-base-url",
+        headers=AUTH_HEADERS,
+        json={"base_url": "http://localhost:1234/v1/chat/completions"},
+    )
+    assert res_url.status_code == 200
+    assert res_url.json()["localhost_base_url"] == "http://localhost:1234/v1/chat/completions"
+    assert storage.get_localhost_base_url() == "http://localhost:1234/v1/chat/completions"
+
+    # Verify provider list reflects custom base URL
+    prov_res = client.get("/v1/providers", headers=AUTH_HEADERS)
+    assert prov_res.json()["providers"]["localhost_byok"]["base_url"] == "http://localhost:1234/v1/chat/completions"
+
+    # Dispatch uses custom URL
+    with patch("rachel.routes.completions.run_agent", new_callable=AsyncMock) as mock_agent:
+        mock_agent.return_value = mock_agent_result
+        res = client.post(
+            "/v1/chat/completions",
+            headers=AUTH_HEADERS,
+            json={"messages": [{"role": "user", "content": "hello lm studio"}]},
+        )
+        assert res.status_code == 200
+        assert mock_agent.call_args.kwargs["base_url"] == "http://localhost:1234/v1/chat/completions"
+
+    # Reset URL
+    res_reset = client.post(
+        "/v1/providers/localhost-base-url",
+        headers=AUTH_HEADERS,
+        json={"base_url": None},
+    )
+    assert res_reset.status_code == 200
+    assert res_reset.json()["localhost_base_url"] is None
+    assert storage.get_localhost_base_url() is None
 
 
 def test_openrouter_pkce_authorize_route():

@@ -229,21 +229,40 @@ def _build_llm_node(
         else:
             openai_msgs.insert(0, {"role": "system", "content": static_prompt})
 
-        # Append dynamic turn directive to last user message or append as new user message at the end
-        if openai_msgs and openai_msgs[-1].get("role") == "user":
-            orig_content = openai_msgs[-1].get("content") or ""
+        # In Round 1 (iteration 0): construct and cache the user message with dynamic turn directive
+        if state["iteration_count"] == 0:
             instruction_block = (
                 f"\n\n---\n"
                 f"[RPG DIRECTIVE & GAME STATE (Turn {turn_number})]\n"
                 f"{dynamic_directive}"
             )
-            openai_msgs[-1]["content"] = orig_content + instruction_block
+            user_idx = None
+            for idx in range(len(openai_msgs) - 1, -1, -1):
+                if openai_msgs[idx].get("role") == "user":
+                    user_idx = idx
+                    break
+
+            if user_idx is not None:
+                orig_content = openai_msgs[user_idx].get("content") or ""
+                constructed_content = orig_content + instruction_block
+                openai_msgs[user_idx]["content"] = constructed_content
+                state_container["cached_constructed_user_message"] = constructed_content
+            else:
+                constructed_content = (
+                    f"[RPG DIRECTIVE & GAME STATE (Turn {turn_number})]\n"
+                    f"{dynamic_directive}"
+                )
+                openai_msgs.append({"role": "user", "content": constructed_content})
+                state_container["cached_constructed_user_message"] = constructed_content
         else:
-            instruction_block = (
-                f"[RPG DIRECTIVE & GAME STATE (Turn {turn_number})]\n"
-                f"{dynamic_directive}"
-            )
-            openai_msgs.append({"role": "user", "content": instruction_block})
+            # In Round 2+: reuse the cached constructed user message bitwise identically
+            cached_user_msg = state_container.get("cached_constructed_user_message")
+            if cached_user_msg:
+                for idx in range(len(openai_msgs) - 1, -1, -1):
+                    if openai_msgs[idx].get("role") == "user":
+                        openai_msgs[idx]["content"] = cached_user_msg
+                        break
+            # Note: Do NOT append any synthetic user message after a tool message in Round 2+
 
         # 2. Call OpenRouter
         engine = get_sandbox_engine()

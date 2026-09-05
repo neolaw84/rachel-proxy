@@ -16,7 +16,7 @@ These are the messages sent by the client interface to RACHEL in the `/v1/chat/c
 
 ### B. Outgoing Messages
 These are the modified messages that RACHEL submits to the upstream LLM (via OpenRouter, OpenAI, etc.). To comply with strict LLM API contracts (like Gemini or Anthropic), RACHEL refines the incoming payload:
-1. **User-Merged Directives**: RACHEL does not append a trailing system message for its dynamic instructions (state values, secret states, planning checklists, and sandbox rules). Doing so violates the alternating role constraint (user-assistant-user) or trailing developer message restrictions of modern LLM APIs. Instead, RACHEL **injects/merges** its directives block directly into the content of the *final user message* of the turn, delimited by separators:
+1. **User-Merged Directives (Round 1)**: RACHEL does not append a trailing system message for its dynamic instructions (state values, secret states, planning checklists, and sandbox rules). Doing so violates the alternating role constraint (user-assistant-user) or trailing developer message restrictions of modern LLM APIs. Instead, in Round 1, RACHEL **injects/merges** its directives block directly into the content of the *final user message* of the turn, delimited by separators:
    ```text
    [Original Player Message content]
 
@@ -24,8 +24,25 @@ These are the modified messages that RACHEL submits to the upstream LLM (via Ope
    [RPG DIRECTIVE & GAME STATE (Turn X)]
    [Dynamic System Instruction]
    ```
-   This approach prevents alternation errors and maximizes LLM prompt prefix cache efficiency.
-2. **Chronological Tool Sequence (Rounds 2+)**: When the LangGraph loop runs, if the LLM emits a tool call (`execute_code_sandbox`), RACHEL executes the sandbox, captures the output, and appends both the assistant's tool-call message and the corresponding tool result message to the **Outgoing Messages** array in strict chronological order. Subsequent iterations (Rounds) continue appending tool interactions to this array before the final assistant narrative is returned to the client.
+   This constructed user message is cached in the turn context (`cached_constructed_user_message`). This prevents alternation errors and maximizes LLM prompt prefix cache efficiency across multi-round completions.
+2. **Chronological Tool Sequence & State Snapshot Expansion (Rounds 2+)**: When the LangGraph loop runs, if the LLM emits a tool call (`execute_code_sandbox`), RACHEL executes the sandbox, captures the output, and appends the assistant's tool-call message and the corresponding tool result message to the **Outgoing Messages** array in strict chronological order:
+   - **User Message Stability**: The user message in Round 2+ uses the cached constructed user message from Round 1 bitwise identically without re-injecting or modifying it.
+   - **No Synthetic User Messages**: RACHEL strictly avoids appending any synthetic `user` message after a `tool` message. The LLM responds directly to the `tool` message in accordance with standard tool-calling protocol.
+   - **Tool Message Snapshot**: The `tool` message for `execute_code_sandbox` is expanded to include both the code's stdout and the updated game state snapshot:
+     ```text
+     <stdout or "(no output)">
+
+     [Updated Game State]:
+     State:
+     { ... }
+
+     Hidden State:
+     { ... }
+
+     Plan:
+     [ ... ]
+     ```
+   This ensures the LLM is fully grounded with mutated variables without needing an extra user prompt. Subsequent iterations continue appending tool interactions to this array before the final assistant narrative is returned to the client.
 
 ---
 

@@ -135,19 +135,29 @@ async def list_providers(request: Request) -> dict[str, Any]:
     storage = get_settings_storage(tenant_id=tenant_id)
     active_provider = storage.get_active_provider()
     creds = storage.get_credentials()
+    localhost_key_not_needed = storage.get_localhost_key_not_needed()
+    localhost_base_url = storage.get_localhost_base_url()
 
     provider_status = {}
     for p in DEFAULT_PROVIDER_BASE_URLS.keys():
         key = creds.get(p, "")
+        is_configured = bool(key)
+        if p == "localhost_byok" and localhost_key_not_needed:
+            is_configured = True
+        base_url = DEFAULT_PROVIDER_BASE_URLS[p]
+        if p == "localhost_byok" and localhost_base_url:
+            base_url = localhost_base_url
         provider_status[p] = {
-            "configured": bool(key),
-            "base_url": DEFAULT_PROVIDER_BASE_URLS[p],
+            "configured": is_configured,
+            "base_url": base_url,
             "default_model": DEFAULT_PROVIDER_MODELS[p],
         }
 
     return {
         "active_provider": active_provider,
         "providers": provider_status,
+        "localhost_key_not_needed": localhost_key_not_needed,
+        "localhost_base_url": localhost_base_url,
     }
 
 
@@ -177,6 +187,36 @@ async def set_provider_credentials(payload: dict[str, Any], request: Request) ->
     storage = get_settings_storage(tenant_id=tenant_id)
     storage.set_credential(provider, api_key)
     return {"status": "ok", "provider": provider}
+
+
+@router.post("/v1/providers/localhost-key-not-needed", dependencies=[Depends(get_admin_user)])
+async def set_localhost_key_not_needed(payload: dict[str, Any], request: Request) -> dict[str, Any]:
+    """Toggle whether an API key is needed for localhost_byok provider."""
+    enabled = payload.get("enabled")
+    if enabled is None:
+        raise HTTPException(status_code=400, detail="Field 'enabled' (boolean) is required.")
+    tenant_id = getattr(request.state, "tenant_id", "local")
+    storage = get_settings_storage(tenant_id=tenant_id)
+    storage.set_localhost_key_not_needed(bool(enabled))
+    return {"status": "ok", "localhost_key_not_needed": bool(enabled)}
+
+
+@router.post("/v1/providers/localhost-base-url", dependencies=[Depends(get_admin_user)])
+async def set_localhost_base_url(payload: dict[str, Any], request: Request) -> dict[str, Any]:
+    """Set custom base URL for localhost_byok provider."""
+    raw_url = payload.get("base_url")
+    if raw_url is not None:
+        url_str = str(raw_url).strip()
+        if url_str and not (url_str.startswith("http://") or url_str.startswith("https://")):
+            raise HTTPException(status_code=400, detail="Base URL must start with http:// or https://")
+        new_url = url_str if url_str else None
+    else:
+        new_url = None
+
+    tenant_id = getattr(request.state, "tenant_id", "local")
+    storage = get_settings_storage(tenant_id=tenant_id)
+    storage.set_localhost_base_url(new_url)
+    return {"status": "ok", "localhost_base_url": new_url}
 
 
 # ---------------------------------------------------------------------------
