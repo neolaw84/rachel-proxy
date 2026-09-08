@@ -152,6 +152,43 @@ def test_localhost_byok_completion_dispatch_behavior(tmp_path, monkeypatch):
         assert call_kwargs["api_key"] == "not-needed"
         assert "localhost:11434" in call_kwargs["base_url"]
         assert call_kwargs["model"] == "llama3.2"
+        assert call_kwargs["client_model"] is None
+        assert call_kwargs["fallback_orchestration_model"] == "llama3.2"
+
+    # 1b. Explicit model in JSON body -> should pass client_model and model
+    with patch("rachel.routes.completions.run_agent", new_callable=AsyncMock) as mock_agent:
+        mock_agent.return_value = mock_agent_result
+        res = client.post(
+            "/v1/chat/completions",
+            headers=AUTH_HEADERS,
+            json={
+                "model": "mistral:7b",
+                "messages": [{"role": "user", "content": "hello local"}]
+            },
+        )
+        assert res.status_code == 200
+        mock_agent.assert_called_once()
+        call_kwargs = mock_agent.call_args.kwargs
+        assert call_kwargs["client_model"] == "mistral:7b"
+        assert call_kwargs["model"] == "mistral:7b"
+        assert call_kwargs["fallback_orchestration_model"] == "llama3.2"
+
+    # 1c. Explicit model in X-Model header -> should pass client_model and model
+    with patch("rachel.routes.completions.run_agent", new_callable=AsyncMock) as mock_agent:
+        mock_agent.return_value = mock_agent_result
+        custom_headers = dict(AUTH_HEADERS)
+        custom_headers["x-model"] = "qwen2.5:7b"
+        res = client.post(
+            "/v1/chat/completions",
+            headers=custom_headers,
+            json={"messages": [{"role": "user", "content": "hello local"}]},
+        )
+        assert res.status_code == 200
+        mock_agent.assert_called_once()
+        call_kwargs = mock_agent.call_args.kwargs
+        assert call_kwargs["client_model"] == "qwen2.5:7b"
+        assert call_kwargs["model"] == "qwen2.5:7b"
+        assert call_kwargs["fallback_orchestration_model"] == "llama3.2"
 
     # 2. Toggle OFF + No key -> should return RACHEL HTTP 400 pre-flight error
     storage.set_localhost_key_not_needed(False)

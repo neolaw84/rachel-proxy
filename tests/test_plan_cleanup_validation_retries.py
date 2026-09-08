@@ -191,3 +191,83 @@ async def test_cleanup_node_exhausts_retries(mock_call):
     # CLEANUP_MAX_RETRIES defaults to 3
     assert mock_call.call_count == 3
     assert state_container["rpg_state"]["state"] == original_state
+
+
+@pytest.mark.asyncio
+@patch("rachel.agent.nodes._GraphDelegate.call_openrouter_direct")
+async def test_nodes_model_override_and_fallback(mock_call):
+    """Verify that plan, summary, and cleanup nodes respect explicit model, fallback_model, and default."""
+    from rachel.agent.nodes import _build_summary_node
+    from rachel.config import PLAN_MODEL, SUMMARY_MODEL, CLEANUP_MODEL
+
+    mock_call.return_value = '[{"id": 1, "description": "goal", "status": "to-do", "remark": ""}]'
+
+    state_container = {
+        "rpg_state": {
+            "state": {},
+            "hidden_state": {},
+            "plan": [],
+            "summary": "existing summary",
+        },
+        "last_summary_turn": 0,
+    }
+    state = {
+        "messages": [
+            HumanMessage(content="Turn 1 User"),
+            AIMessage(content="Turn 1 Asst"),
+            HumanMessage(content="Turn 2 User"),
+            AIMessage(content="Turn 2 Asst"),
+        ]
+    }
+    config = RunnableConfig(configurable={})
+
+    # 1. Plan node with explicit client model
+    plan_node_explicit = _build_plan_node(
+        api_key="fake_key",
+        state_container=state_container,
+        model="custom-client-model",
+    )
+    await plan_node_explicit(state, config)
+    assert mock_call.call_args.kwargs["model"] == "custom-client-model"
+
+    # 2. Plan node with fallback_model (e.g. localhost_byok with llama3.2)
+    plan_node_fallback = _build_plan_node(
+        api_key="fake_key",
+        state_container=state_container,
+        model=None,
+        fallback_model="llama3.2",
+    )
+    await plan_node_fallback(state, config)
+    assert mock_call.call_args.kwargs["model"] == "llama3.2"
+
+    # 3. Plan node with default (OpenRouter fallback to PLAN_MODEL)
+    plan_node_default = _build_plan_node(
+        api_key="fake_key",
+        state_container=state_container,
+        model=None,
+        fallback_model=None,
+    )
+    await plan_node_default(state, config)
+    assert mock_call.call_args.kwargs["model"] == PLAN_MODEL
+
+    # 4. Summary node with fallback_model
+    mock_call.return_value = ("New summary text", [])
+    summary_node_fallback = _build_summary_node(
+        api_key="fake_key",
+        state_container=state_container,
+        model=None,
+        fallback_model="llama3.2",
+    )
+    await summary_node_fallback(state, config)
+    assert mock_call.call_args.kwargs["model"] == "llama3.2"
+
+    # 5. Cleanup node with explicit client model
+    mock_call.return_value = "state.x = 1;"
+    cleanup_node_explicit = _build_cleanup_node(
+        api_key="fake_key",
+        state_container=state_container,
+        sandbox_timeout=2.0,
+        model="custom-client-model",
+    )
+    await cleanup_node_explicit(state, config)
+    assert mock_call.call_args.kwargs["model"] == "custom-client-model"

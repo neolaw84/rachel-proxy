@@ -44,9 +44,10 @@ SANDBOX_INFO_V8 = (
     "     * Example 2 (same dice sizes): `contest({num: 1, sides: 20}, {num: 1, sides: 20}, {\"charisma\": 3}, {\"intelligence\": 0}, {\"-10\": \"Rejected\", \"0\": \"Unconvinced\", \"20\": \"Charmed\"})`\n"
     "     **ALWAYS INCLUDE non-empty `interpretation` dictionary, without which the contest roll will fail.**\n"
     "  3. `update_plan_status(updates)`: Updates the status of items in the global `plan` array. Returns status string.\n"
-    "     * `updates` is an array of objects: `[{id: Identifier, status: String}]`.\n"
+    "     * `updates` is an array of objects: `[{id: Identifier, status: String}]` (valid status values: 'to-do', 'in-progress', 'completed', 'failed', 'abandoned').\n"
     "     * Example 1 (multi-update): `update_plan_status([{id: 1, status: \"completed\"}, {id: 2, status: \"in-progress\"}])`\n"
     "     * Example 2 (single-update): `update_plan_status([{id: \"find_key\", status: \"completed\"}])`\n"
+    "     * Example 3 (abandoning path): `update_plan_status([{id: \"convince_guard\", status: \"abandoned\"}])`\n"
 )
 
 STATE_CONSTRAINTS_INFO_TEMPLATE = (
@@ -69,6 +70,7 @@ STATIC_SYSTEM_INSTRUCTION_TEMPLATE = (
     "- **Context:** You set the plan, which you will access (read-only) when you are in 'progress' mode.\n"
     "- **Sources:** You will receive the current plan, rolling summary, current game state and recent developments.\n"
     "- **Expectations:**\n"
+    "  - As plan items become \"completed\", \"failed\" or \"abandoned\", you can extend the plan with new items.\n"
     "  - Submit your updated plan using the `submit_plan` function tool with array of items `[{{\"id\": ..., \"description\": ..., \"status\": ..., \"remark\": ...}}]`.\n"
     "  - Limit item `description` and `remark` to a maximum of 500 characters each.\n"
     "\n"
@@ -93,7 +95,7 @@ STATIC_SYSTEM_INSTRUCTION_TEMPLATE = (
     "  - **Never put \"Turn x:\" prefixes:** You are in an agentic loop system. You do NOT need to put \"Turn x:\" prefixes in your response. The system will automagically take care of it.\n"
     "  - **The user *MUST NOT know* about hidden-state:** Never mention the words \"Secret State\", \"Hidden State\", or output the raw JSON contents/variables from that section. Translate these metrics into organic, atmospheric narrative (e.g., instead of outputting \"dungeon_boss_hp: 250\", write \"The threat ahead looms large and formidable\").\n"
     "  - **The top-level `plan` array is read-only:** Do not attempt to add/remove/modify the plan items.\n"
-    "  - **Update the status field(s) of the Plan:** In the sandbox, use `update_plan_status([{{id: ..., status: ...}}])` to update status. Structural re-planning is managed in Plan mode.\n"
+    "  - **Update the status field(s) of the Plan:** In the sandbox, use `update_plan_status([{{id: ..., status: ...}}])` to update status (valid values: 'to-do', 'in-progress', 'completed', 'failed', 'abandoned'). If the story cannot proceed along a planned path (for instance, dice roll outcomes, or events allow the player to change it or bypass it), update that plan item's status to \"abandoned\". Structural re-planning is managed in Plan mode.\n"
     "  - **Arithemetic, Logic and Randomness:** Handle all arithemetic, logical and randomness computations using the `execute_code_sandbox` tool, not your own hallucinated logic.\n"
     "  - **You are stateless across turns:** To remember structural variables, save them to the public `state` or secret `hidden_state` objects using the code sandbox.\n"
     "  - **How to update/save state and hidden-state:** Use the `execute_code_sandbox` tool to modify the **State** (`state`) and **Hidden State** (`hidden_state`).\n"
