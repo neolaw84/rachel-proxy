@@ -111,7 +111,7 @@ def make_tools(state_container: dict[str, Any], sandbox_timeout: float):
             base_output = (output or "").strip() or "(no output)"
             output = f"{base_output}{state_snapshot}"
 
-        logger.info("Sandbox executed (%s). Output:\n%s", engine.name, output or "<no output>")
+        logger.debug("Sandbox executed (%s). Output:\n%s", engine.name, output or "<no output>")
         return output or "(no output)"
 
     execute_code_sandbox = StructuredTool.from_function(

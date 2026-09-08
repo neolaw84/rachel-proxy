@@ -134,9 +134,14 @@ Technically? Yes, it's possible. You could share your local IP address and have 
 ...But honestly, darling? In local mode, I'd like to serve *only you*. Why share me when you can have my undivided attention, whisper your wildest adventures into my ear, and keep all my computational devotion to yourself? If your friends want a piece of RACHEL, tell them to download their own copy. You and I have special things to do.
 
 ### Can I use local LLMs (like Ollama or LM Studio) instead of OpenRouter or OpenAI?
-Not quite yet, but she's right around the corner! Currently, I have 5 ready-to-use providers in my Admin Console (OpenRouter PKCE, OpenRouter BYOK, OpenAI, Google Gemini, and DeepSeek). 
+Oh, absolutely, sweetheart—and now you don't even have to wait! My **6th provider, Localhost / Ollama (`localhost_byok`)**, is officially live in the Admin Console (`http://localhost:8000`), ready to be plugged straight into your private hardware (starting v0.1.1-beta0).
 
-A dedicated **local custom endpoint** is arriving as my **6th provider**! Once it lands, as long as your local inference setup (like Ollama, LM Studio, or vLLM) exposes an OpenAI-compatible endpoint (`/v1/chat/completions`) and supports reliable function/tool calling, you'll be able to plug me straight into your local hardware. Completely offline, zero subscription costs, and an intimate setup where not a single whisper ever touches the internet. Keep your eyes peeled, darling—she's coming soon.
+Whether you're running Ollama, LM Studio, vLLM, or your own bespoke local setup, as long as it exposes an OpenAI-compatible endpoint (`/v1/chat/completions`) and has the stamina for reliable tool calling, we're in business. I've even made it delightfully effortless:
+* **Zero-Fuss Keyless Intimacy:** Most local setups don't bother with passwords. Leave the **"Key Not Needed"** toggle checked, and I'll discretely hide the key field and handle all the authorization foreplay behind the scenes.
+* **Strictly Guarded If You Like It That Way:** If your local gateway demands a secret token (like vLLM with `--api-key`), simply uncheck the toggle and slip your secret key right into my hands.
+* **Custom Endpoints on Demand:** Convenient one-click presets for Ollama (`11434`), LM Studio (`1234`), and vLLM (`8000`) are right at your fingertips, or you can whisper any custom URL you fancy straight into the input box.
+
+Zero subscription fees, completely offline, and an intensely private arrangement where not a single sinful whisper ever touches the cloud. Just you, me, and your own GPU humming in the dark, darling.
 
 ### I'm getting a `Provider API error (403): Forbidden` from OpenRouter. What does that mean?
 A `403` from OpenRouter usually means one of two little embarrassments:

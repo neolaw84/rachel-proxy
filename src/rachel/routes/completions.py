@@ -247,6 +247,8 @@ async def _handle_streaming_completion(
     turn_number: int = 1,
     turn_numbers: list[int | None] | None = None,
     meta_data: dict[str, Any] | None = None,
+    client_model: str | None = None,
+    fallback_orchestration_model: str | None = None,
 ) -> StreamingResponse:
     """Run the agent asynchronously and return a streaming SSE response."""
     stream_queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
@@ -268,6 +270,8 @@ async def _handle_streaming_completion(
             last_plan_turn=meta_data.get("last_plan_turn", 0) if meta_data else 0,
             last_summary_turn=meta_data.get("last_summary_turn", 0) if meta_data else 0,
             last_cleanup_turn=meta_data.get("last_cleanup_turn", 0) if meta_data else 0,
+            client_model=client_model,
+            fallback_orchestration_model=fallback_orchestration_model,
         )
     )
 
@@ -302,6 +306,8 @@ async def _handle_non_streaming_completion(
     turn_number: int = 1,
     turn_numbers: list[int | None] | None = None,
     meta_data: dict[str, Any] | None = None,
+    client_model: str | None = None,
+    fallback_orchestration_model: str | None = None,
 ) -> JSONResponse:
     """Run the agent and return a standard JSON chat completion response."""
     try:
@@ -320,6 +326,8 @@ async def _handle_non_streaming_completion(
             last_plan_turn=meta_data.get("last_plan_turn", 0) if meta_data else 0,
             last_summary_turn=meta_data.get("last_summary_turn", 0) if meta_data else 0,
             last_cleanup_turn=meta_data.get("last_cleanup_turn", 0) if meta_data else 0,
+            client_model=client_model,
+            fallback_orchestration_model=fallback_orchestration_model,
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Agent execution failed: {exc}") from exc
@@ -390,8 +398,16 @@ async def proxy_chat_completions(
     )
 
     messages: list[dict] = payload.get("messages", [])
-    # Forward model verbatim if present in request; fallback to active provider default model if missing
-    model: str = payload.get("model") or default_model
+    # Forward model verbatim if present in request (body or headers); fallback to active provider default model if missing
+    client_model: str | None = (
+        payload.get("model")
+        or request.headers.get("x-model")
+        or request.headers.get("model")
+    )
+    model: str = client_model or default_model
+
+    is_openrouter = active_provider in ("openrouter_byok", "openrouter_pkce")
+    fallback_orchestration_model: str | None = None if is_openrouter else default_model
 
     temperature: float | None = None
     if "temperature" in payload:
@@ -461,6 +477,8 @@ async def proxy_chat_completions(
             turn_number=resolved_turn_number,
             turn_numbers=turn_nums,
             meta_data=meta_data,
+            client_model=client_model,
+            fallback_orchestration_model=fallback_orchestration_model,
         )
 
     return await _handle_non_streaming_completion(
@@ -477,4 +495,6 @@ async def proxy_chat_completions(
         turn_number=resolved_turn_number,
         turn_numbers=turn_nums,
         meta_data=meta_data,
+        client_model=client_model,
+        fallback_orchestration_model=fallback_orchestration_model,
     )

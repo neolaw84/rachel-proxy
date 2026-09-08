@@ -78,7 +78,7 @@ Settings for the narrative planner node that updates your story roadmap checklis
 * **`trigger_probability`**: Decimal. Trigger chance if `trigger_type` is probabilistic (default `0.10` or 10%).
 * **`initial_num_msgs_to_include`**: Integer. Number of initial non-system messages (after Message 0) preserved at the prefix of the outgoing messages stream (default `4`).
 * **`bundle_llm`**: **Deprecated/Removed**. All updates are now executed concurrently and synchronously prior to the narrative step using the node's own LLM settings (corresponding to `bundle_llm = false` behavior).
-* **`llm.model`**: Text. The model to use for the planner (default `"google/gemini-3.5-flash"`).
+* **`llm.model`**: Text. The fallback model for the planner on OpenRouter when the client request omits the `model` parameter (default `"google/gemini-3.5-flash"`). When the client specifies a model, that model is always used instead. For non-OpenRouter providers (e.g. Localhost / Ollama, OpenAI, DeepSeek), the planner automatically falls back to the provider's active default model (e.g. `llama3.2`).
 * **`llm.base_url`**: Text. Completion URL override for the planner model.
 * **`llm.include_reasoning`**: Boolean (`true`/`false`). Enable reasoning support for models that support it.
 * **`llm.temperature`**: Decimal. Model sampling temperature (default `0.2` for logical, factual checklists).
@@ -95,7 +95,7 @@ Settings for the summary node that compiles the rolling story recap:
 * **`initial_num_msgs_to_include`**: Integer. Number of initial non-system messages (after Message 0) preserved at the prefix of the outgoing messages stream (default `4`).
 * **`bundle_llm`**: **Deprecated/Removed**. All updates are now executed concurrently and synchronously prior to the narrative step using the node's own LLM settings (corresponding to `bundle_llm = false` behavior).
 * **`summary_target_words`**: Integer. Target word length for the summary block (default `200` words).
-* **`llm.model`**: Text. The model to use for the summarizer (default `"google/gemini-3.5-flash"`).
+* **`llm.model`**: Text. The fallback model for the summarizer on OpenRouter when the client request omits the `model` parameter (default `"google/gemini-3.5-flash"`). When the client specifies a model, that model is always used instead. For non-OpenRouter providers, it falls back to the active provider's default model.
 * **`llm.base_url`**: Text. Completion URL override for the summarizer model.
 * **`llm.include_reasoning`**: Boolean (`true`/`false`). Enable reasoning support.
 * **`llm.temperature`**: Decimal. Model sampling temperature (default `0.2`).

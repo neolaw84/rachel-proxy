@@ -327,7 +327,13 @@ from rachel.sandbox.schemas import (
 
 
 
-def _build_summary_node(api_key: str, state_container: dict[str, Any], base_url: str | None = None):
+def _build_summary_node(
+    api_key: str,
+    state_container: dict[str, Any],
+    base_url: str | None = None,
+    model: str | None = None,
+    fallback_model: str | None = None,
+):
     """Return the Summary node callable."""
     async def summary_node(state: AgentState, config: RunnableConfig) -> dict:
         from rachel.config import (
@@ -336,6 +342,8 @@ def _build_summary_node(api_key: str, state_container: dict[str, Any], base_url:
             SUMMARY_TEMPERATURE,
             SUMMARY_TARGET_WORDS,
         )
+
+        target_model = model or fallback_model or SUMMARY_MODEL
 
         rpg = state_container["rpg_state"]
         current_turn = sum(1 for m in state["messages"] if isinstance(m, AIMessage)) + 1
@@ -417,7 +425,7 @@ def _build_summary_node(api_key: str, state_container: dict[str, Any], base_url:
             direct_res = await _GraphDelegate.call_openrouter_direct(
                 api_key=api_key,
                 base_url=base_url or SUMMARY_BASE_URL,
-                model=SUMMARY_MODEL,
+                model=target_model,
                 openai_messages=history_msgs,
                 temperature=SUMMARY_TEMPERATURE,
                 tools=all_tools,
@@ -461,7 +469,13 @@ def _build_summary_node(api_key: str, state_container: dict[str, Any], base_url:
         return {"rpg_state": rpg}
     return summary_node
 
-def _build_plan_node(api_key: str, state_container: dict[str, Any], base_url: str | None = None):
+def _build_plan_node(
+    api_key: str,
+    state_container: dict[str, Any],
+    base_url: str | None = None,
+    model: str | None = None,
+    fallback_model: str | None = None,
+):
     """Return the Plan node callable."""
     async def plan_node(state: AgentState, config: RunnableConfig) -> dict:
         from rachel.config import (
@@ -470,6 +484,8 @@ def _build_plan_node(api_key: str, state_container: dict[str, Any], base_url: st
             PLAN_TEMPERATURE,
             PLAN_MAX_RETRIES,
         )
+
+        target_model = model or fallback_model or PLAN_MODEL
 
         rpg = state_container["rpg_state"]
         current_turn = sum(1 for m in state["messages"] if isinstance(m, AIMessage)) + 1
@@ -565,7 +581,7 @@ def _build_plan_node(api_key: str, state_container: dict[str, Any], base_url: st
                 direct_res = await _GraphDelegate.call_openrouter_direct(
                     api_key=api_key,
                     base_url=base_url or PLAN_BASE_URL,
-                    model=PLAN_MODEL,
+                    model=target_model,
                     openai_messages=current_msgs,
                     temperature=PLAN_TEMPERATURE,
                     tools=all_tools,
@@ -626,7 +642,10 @@ def _build_plan_node(api_key: str, state_container: dict[str, Any], base_url: st
 
                 state_container["last_plan_turn"] = current_turn
 
-                logger.info("Graph Plan node update complete: %s", rpg["plan"])
+                logger.info(
+                    "Graph Plan node update complete:\n%s",
+                    json.dumps(rpg["plan"], indent=2, ensure_ascii=False)
+                )
                 plan_updated = True
                 break
             except Exception as exc:
@@ -640,7 +659,14 @@ def _build_plan_node(api_key: str, state_container: dict[str, Any], base_url: st
         return {"rpg_state": rpg}
     return plan_node
 
-def _build_cleanup_node(api_key: str, state_container: dict[str, Any], sandbox_timeout: float, base_url: str | None = None):
+def _build_cleanup_node(
+    api_key: str,
+    state_container: dict[str, Any],
+    sandbox_timeout: float,
+    base_url: str | None = None,
+    model: str | None = None,
+    fallback_model: str | None = None,
+):
     """Return the Cleanup node callable."""
     async def cleanup_node(state: AgentState, config: RunnableConfig) -> dict:
         import copy
@@ -654,6 +680,8 @@ def _build_cleanup_node(api_key: str, state_container: dict[str, Any], sandbox_t
             MAX_STRING_LENGTH,
         )
         from rachel.sandbox.validation import validate_state_constraints
+
+        target_model = model or fallback_model or CLEANUP_MODEL
 
         engine = get_sandbox_engine()
         rpg = state_container["rpg_state"]
@@ -731,7 +759,7 @@ def _build_cleanup_node(api_key: str, state_container: dict[str, Any], sandbox_t
                 direct_res = await _GraphDelegate.call_openrouter_direct(
                     api_key=api_key,
                     base_url=base_url or CLEANUP_BASE_URL,
-                    model=CLEANUP_MODEL,
+                    model=target_model,
                     openai_messages=history_msgs,
                     temperature=CLEANUP_TEMPERATURE,
                     tools=all_tools,
@@ -883,11 +911,18 @@ def _should_continue(max_iterations: int):
     return _edge
 
 
-def _build_pre_action_node(api_key: str, state_container: dict[str, Any], sandbox_timeout: float, base_url: str | None = None):
+def _build_pre_action_node(
+    api_key: str,
+    state_container: dict[str, Any],
+    sandbox_timeout: float,
+    base_url: str | None = None,
+    model: str | None = None,
+    fallback_model: str | None = None,
+):
     """Return a node that executes Plan, Summary, and Cleanup concurrently if triggered."""
-    summary_fn = _build_summary_node(api_key, state_container, base_url=base_url)
-    plan_fn = _build_plan_node(api_key, state_container, base_url=base_url)
-    cleanup_fn = _build_cleanup_node(api_key, state_container, sandbox_timeout, base_url=base_url)
+    summary_fn = _build_summary_node(api_key, state_container, base_url=base_url, model=model, fallback_model=fallback_model)
+    plan_fn = _build_plan_node(api_key, state_container, base_url=base_url, model=model, fallback_model=fallback_model)
+    cleanup_fn = _build_cleanup_node(api_key, state_container, sandbox_timeout, base_url=base_url, model=model, fallback_model=fallback_model)
 
     async def pre_action_node(state: AgentState, config: RunnableConfig) -> dict:
         import asyncio

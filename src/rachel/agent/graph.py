@@ -55,12 +55,21 @@ def build_graph(
     sandbox_timeout: float,
     max_iterations: int,
     temperature: float | None = None,
+    client_model: str | None = None,
+    fallback_orchestration_model: str | None = None,
 ):
     """Compile and return the LangGraph agent graph."""
     tools = make_tools(state_container, sandbox_timeout)
 
     graph = StateGraph(AgentState)  # type: ignore[arg-type]
-    graph.add_node("pre_action", _build_pre_action_node(api_key, state_container, sandbox_timeout, base_url=base_url))
+    graph.add_node("pre_action", _build_pre_action_node(
+        api_key,
+        state_container,
+        sandbox_timeout,
+        base_url=base_url,
+        model=client_model,
+        fallback_model=fallback_orchestration_model,
+    ))
     graph.add_node("llm", _build_llm_node(api_key, base_url, model, max_iterations, sandbox_timeout, state_container, temperature=temperature))
     graph.add_node("tools", _build_tool_node(tools))
     graph.add_node("route_end", _build_route_end_node())
@@ -92,6 +101,8 @@ async def run_agent(
     last_plan_turn: int = 0,
     last_summary_turn: int = 0,
     last_cleanup_turn: int = 0,
+    client_model: str | None = None,
+    fallback_orchestration_model: str | None = None,
 ) -> dict[str, Any]:
     """Run the LangGraph agent for one proxy turn."""
     if turn_number is None:
@@ -128,6 +139,8 @@ async def run_agent(
         sandbox_timeout=sandbox_timeout,
         max_iterations=max_iterations,
         temperature=temperature,
+        client_model=client_model,
+        fallback_orchestration_model=fallback_orchestration_model,
     )
 
     initial_state: AgentState = {

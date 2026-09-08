@@ -33,7 +33,7 @@ SUBMIT_PLAN_TOOL: dict[str, Any] = {
                             "description": {"type": "string", "description": "Goal description"},
                             "status": {
                                 "type": "string",
-                                "enum": ["to-do", "in-progress", "completed", "failed"],
+                                "enum": ["to-do", "in-progress", "completed", "failed", "abandoned"],
                                 "description": "Current status",
                             },
                             "remark": {"type": "string", "description": "Optional notes or remarks"},
