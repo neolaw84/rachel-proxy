@@ -11,20 +11,16 @@ import logging
 import os
 from typing import Any
 from rachel.sandbox.base import SandboxEngine
-from rachel.sandbox.python_engine import PythonSandboxEngine
 from rachel.sandbox.v8_engine import V8SandboxEngine
 
 logger = logging.getLogger(__name__)
 
 # Expose Base Interface and concrete engines for compatibility
-__all__ = ["SandboxEngine", "PythonSandboxEngine", "V8SandboxEngine", "get_sandbox_engine", "execute_sandbox"]
+__all__ = ["SandboxEngine", "V8SandboxEngine", "get_sandbox_engine", "execute_sandbox"]
 
 @functools.lru_cache(maxsize=1)
 def get_sandbox_engine() -> SandboxEngine:
-    """Return the V8SandboxEngine instance (Python sandbox is deprecated)."""
-    engine_name = os.environ.get("RACHEL_SANDBOX_ENGINE", "v8").strip().lower()
-    if engine_name == "python":
-        logger.warning("Python sandbox engine is deprecated. Standardizing on V8 sandbox.")
+    """Return the V8SandboxEngine instance."""
     return V8SandboxEngine()
 
 

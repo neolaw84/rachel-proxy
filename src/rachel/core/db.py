@@ -109,6 +109,15 @@ _engines: dict[str, Any] = {}
 _sessionmakers: dict[Any, sessionmaker] = {}
 
 
+def dispose_engine(db_url: str | None = None) -> None:
+    """Dispose of an engine and remove it from the engine cache."""
+    url = db_url or get_default_db_url()
+    if url in _engines:
+        engine = _engines.pop(url)
+        _sessionmakers.pop(engine, None)
+        engine.dispose()
+
+
 def get_engine(db_url: str | None = None) -> Any:
     """Return an SQLAlchemy Engine for the target database URL."""
     url = db_url or get_default_db_url()
