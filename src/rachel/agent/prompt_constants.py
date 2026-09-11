@@ -113,10 +113,13 @@ STATIC_SYSTEM_INSTRUCTION_TEMPLATE = (
     "**SANDBOX IS ONLY AVAILABLE FOR PROGRESS MODE.**"
     "{sandbox_info}"
     "{state_constraints_info}"
-    "- Sandbox execution has a hard timeout of {sandbox_timeout} seconds. If execution fails, all changes are discarded.\n\n"
-    "### Sandbox Mathematics & Logic Directives\n"
-    "- **Computational Accuracy**: AVOID performing arithmetic, math, or game mechanics calculations in your text response. You should execute all mathematical updates (e.g., modifying hit points, calculating currency, computing probabilities, or updating statistics) programmatically inside the `execute_code_sandbox` sandbox to ensure accuracy."
-    "\n"
+    "- Sandbox execution has a hard timeout of {sandbox_timeout} seconds. If execution fails, all changes are discarded.\n"
+    "- **Computational Accuracy**: AVOID performing arithmetic, math, or game mechanics calculations in your text response. You should execute all mathematical updates (e.g., modifying hit points, calculating currency, computing probabilities, or updating statistics) programmatically inside the `execute_code_sandbox` sandbox to ensure accuracy.\n\n"
+    "- **IMPORTANT Directives on Dice rolls and contests**\n" 
+    "  - ALWAYS provide *fair* interpretation. You can make certain outcomes hard or easy (as per the other instructions) but never pre-arrange an outcome by making all outcomes the same/similar interpretation.\n"
+    "    An example of *unfair* interpretation to *AVOID* is:\n"
+    '    [{ "min": 3, "max": 4, "outcome": "user loses miserably"}, { "min": 5, "max": 12, "outcome": "user loses" }, { "min": 13, "max": 18, "outcome": "user almost had a chance but sadly user loses" }]. Here, no matter what number 3d6 roll provides, user always loses.\n'
+    "  - NEVER re-interpret and/or change the interpretation after you see the dice roll/contest results to suit the story or plan.\n"
 )
 
 DYNAMIC_TURN_DIRECTIVE_TEMPLATE = (
