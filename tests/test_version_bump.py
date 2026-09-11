@@ -11,30 +11,32 @@ from bump_version import bump_version, resolve_bump_type, update_pyproject_versi
 
 
 def test_bump_version_major():
-    assert bump_version("0.1.1b1", "major") == "1.0.0"
-    assert bump_version("1.2.3", "major") == "2.0.0"
+    assert bump_version("0.1.1b1", "major") == "1.0.0a0"
+    assert bump_version("1.2.3", "major") == "2.0.0a0"
 
 
 def test_bump_version_minor():
-    assert bump_version("0.1.1b1", "minor") == "0.2.0"
-    assert bump_version("1.2.3", "minor") == "1.3.0"
+    assert bump_version("0.1.1b1", "minor") == "0.2.0a0"
+    assert bump_version("1.2.3", "minor") == "1.3.0a0"
 
 
 def test_bump_version_micro_and_patch():
-    assert bump_version("0.1.1b1", "micro") == "0.1.2"
-    assert bump_version("0.1.1b1", "patch") == "0.1.2"
-    assert bump_version("1.2.3", "micro") == "1.2.4"
+    assert bump_version("0.1.1b1", "micro") == "0.1.2a0"
+    assert bump_version("0.1.1b1", "patch") == "0.1.2a0"
+    assert bump_version("1.2.3", "micro") == "1.2.4a0"
 
 
 def test_bump_version_release():
     assert bump_version("0.1.1b1", "release") == "0.1.1"
     assert bump_version("1.2.3rc2", "release") == "1.2.3"
+    assert bump_version("1.2.3a0", "release") == "1.2.3"
     assert bump_version("1.2.3", "release") == "1.2.3"
 
 
 def test_bump_version_labels():
     # Alpha
     assert bump_version("0.1.1", "a") == "0.1.1a1"
+    assert bump_version("0.1.1a0", "a") == "0.1.1a1"
     assert bump_version("0.1.1a1", "alpha") == "0.1.1a2"
     # Beta
     assert bump_version("0.1.1", "b") == "0.1.1b1"
@@ -50,7 +52,8 @@ def test_bump_version_after_label_number_and_default():
     assert bump_version("0.1.1b1", "after-label-number") == "0.1.1b2"
     assert bump_version("0.1.1b1", "build") == "0.1.1b2"
     assert bump_version("0.1.1b1", "default") == "0.1.1b2"
-    assert bump_version("0.1.1", "default") == "0.1.2"
+    assert bump_version("0.1.1a0", "default") == "0.1.1a1"
+    assert bump_version("0.1.1", "default") == "0.1.2a0"
 
 
 def test_bump_version_skip():
@@ -98,13 +101,13 @@ def test_update_pyproject_version(tmp_path):
     )
 
     res = update_pyproject_version(pyproj, "minor")
-    assert res == ("0.1.1b1", "0.2.0")
-    assert 'version = "0.2.0"' in pyproj.read_text(encoding="utf-8")
+    assert res == ("0.1.1b1", "0.2.0a0")
+    assert 'version = "0.2.0a0"' in pyproj.read_text(encoding="utf-8")
 
     # Skip should not modify
     res_skip = update_pyproject_version(pyproj, "skip")
     assert res_skip is None
-    assert 'version = "0.2.0"' in pyproj.read_text(encoding="utf-8")
+    assert 'version = "0.2.0a0"' in pyproj.read_text(encoding="utf-8")
 
 
 def test_bump_script_cli_execution(tmp_path):
@@ -121,5 +124,5 @@ def test_bump_script_cli_execution(tmp_path):
         text=True,
     )
     assert proc.returncode == 0
-    assert "1.0.0 -> 1.0.1" in proc.stdout
-    assert 'version = "1.0.1"' in pyproj.read_text(encoding="utf-8")
+    assert "1.0.0 -> 1.0.1a0" in proc.stdout
+    assert 'version = "1.0.1a0"' in pyproj.read_text(encoding="utf-8")

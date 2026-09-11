@@ -2,14 +2,14 @@
 """Auto-bump version in pyproject.toml based on commit message tags, environment variables, or CLI arguments.
 
 Supported bump types:
-- major: 0.1.1b1 -> 1.0.0
-- minor: 0.1.1b1 -> 0.2.0
-- micro / patch: 0.1.1b1 -> 0.1.2
+- major: 0.1.1b1 -> 1.0.0a0
+- minor: 0.1.1b1 -> 0.2.0a0
+- micro / patch: 0.1.1b1 -> 0.1.2a0
 - release: 0.1.1b1 -> 0.1.1 (strips pre-release label)
 - a / alpha: 0.1.1b1 -> 0.1.1a1 (or 0.1.1a1 -> 0.1.1a2)
 - b / beta: 0.1.1b1 -> 0.1.1b2 (or 0.1.1 -> 0.1.1b1)
 - rc: 0.1.1b1 -> 0.1.1rc1 (or 0.1.1rc1 -> 0.1.1rc2)
-- num / build / after-label-number: 0.1.1b1 -> 0.1.1b2 (or 0.1.1 -> 0.1.2 if no label)
+- num / build / after-label-number: 0.1.1b1 -> 0.1.1b2 (or 0.1.1 -> 0.1.2a0 if no label)
 - skip / none: does not bump version
 
 Commit Message Tag Syntax:
@@ -60,11 +60,11 @@ def bump_version(current_version: str, bump_type: str) -> str:
     b_type = bump_type.lower().strip()
 
     if b_type == "major":
-        return f"{major + 1}.0.0"
+        return f"{major + 1}.0.0a0"
     elif b_type == "minor":
-        return f"{major}.{minor + 1}.0"
+        return f"{major}.{minor + 1}.0a0"
     elif b_type in ("micro", "patch"):
-        return f"{major}.{minor}.{micro + 1}"
+        return f"{major}.{minor}.{micro + 1}a0"
     elif b_type == "release":
         return f"{major}.{minor}.{micro}"
     elif b_type in ("a", "alpha"):
@@ -82,7 +82,7 @@ def bump_version(current_version: str, bump_type: str) -> str:
     elif b_type in ("num", "build", "after-label-number", "default"):
         if label and num is not None:
             return f"{major}.{minor}.{micro}{label}{num + 1}"
-        return f"{major}.{minor}.{micro + 1}"
+        return f"{major}.{minor}.{micro + 1}a0"
     elif b_type in ("skip", "none"):
         return current_version
     else:
