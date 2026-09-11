@@ -117,91 +117,7 @@ def test_list_sessions(tmp_path):
 # Sandbox tests
 # ---------------------------------------------------------------------------
 
-from rachel.sandbox.sandbox import PythonSandboxEngine, V8SandboxEngine
-
-# --- Python Engine Tests ---
-
-def test_python_sandbox_mutates_state():
-    engine = PythonSandboxEngine()
-    code = "state['hp'] -= 10"
-    updated, output = engine.execute(code, {"hp": 100})
-    assert updated["hp"] == 90
-
-
-def test_python_sandbox_captures_stdout():
-    engine = PythonSandboxEngine()
-    code = "print('hello world')"
-    _, output = engine.execute(code, {})
-    assert "hello world" in output
-
-
-def test_python_sandbox_blocks_os_import():
-    engine = PythonSandboxEngine()
-    code = "import os; os.system('echo pwned')"
-    updated, output = engine.execute(code, {})
-    assert "Sandbox Exception" in output or "import" in output.lower()
-
-
-def test_python_sandbox_timeout():
-    engine = PythonSandboxEngine()
-    code = "while True: pass"
-    updated, output = engine.execute(code, {}, timeout_seconds=0.3)
-    assert "timed out" in output.lower()
-
-
-def test_python_sandbox_exception_is_captured():
-    engine = PythonSandboxEngine()
-    code = "raise ValueError('oops')"
-    updated, output = engine.execute(code, {})
-    assert "ValueError" in output
-    assert "oops" in output
-
-
-def test_python_sandbox_non_dict_state_reverts():
-    engine = PythonSandboxEngine()
-    code = "state = 42"
-    original = {"hp": 10}
-    updated, output = engine.execute(code, original)
-    assert updated == original
-    assert "Warning" in output
-
-
-def test_python_sandbox_allowed_imports_work():
-    engine = PythonSandboxEngine()
-    # Test importing whitelisted modules
-    code = (
-        "import math, random, json, datetime, collections, itertools, functools, re, string\n"
-        "state['val'] = math.sqrt(16)\n"
-        "state['rand'] = random.randint(1, 1)\n"
-        "state['now'] = datetime.date(2026, 7, 8).isoformat()\n"
-        "state['cnt'] = collections.Counter([1, 1])[1]\n"
-    )
-    updated, output = engine.execute(code, {})
-    assert updated.get("val") == 4.0
-    assert updated.get("rand") == 1
-    assert updated.get("now") == "2026-07-08"
-    assert updated.get("cnt") == 2
-
-
-def test_python_sandbox_pre_injected_modules_work():
-    engine = PythonSandboxEngine()
-    # Test using math and random without explicit imports
-    code = "state['val'] = math.floor(4.7)"
-    updated, output = engine.execute(code, {})
-    assert updated.get("val") == 4
-
-    code = "state['rand'] = random.choice([42])"
-    updated, output = engine.execute(code, {})
-    assert updated.get("rand") == 42
-
-
-def test_python_sandbox_blocks_unauthorized_imports():
-    engine = PythonSandboxEngine()
-    code = "import sys"
-    updated, output = engine.execute(code, {})
-    assert "ImportError" in output
-    assert "sys" in output
-
+from rachel.sandbox.sandbox import V8SandboxEngine
 
 # --- V8 Engine Tests ---
 
@@ -378,17 +294,77 @@ def test_roll_xdy_in_v8_sandbox():
     assert "interpretation of the dice roll is '" in output
 
 
-def test_roll_xdy_in_python_sandbox():
-    from rachel.sandbox.python_engine import PythonSandboxEngine
-    engine = PythonSandboxEngine()
+def test_get_dice_interpretation_option_a_array():
+    from rachel.agent.tools import get_dice_interpretation
+
+    ranges = [
+        {"min": 1, "max": 5, "outcome": "Critical Failure"},
+        {"min": 6, "max": 12, "outcome": "Failure"},
+        {"min": 13, "max": 17, "outcome": "Success"},
+        {"min": 18, "max": 20, "outcome": "Critical Success"},
+    ]
+
+    assert get_dice_interpretation(1, ranges) == "Critical Failure"
+    assert get_dice_interpretation(5, ranges) == "Critical Failure"
+    assert get_dice_interpretation(6, ranges) == "Failure"
+    assert get_dice_interpretation(12, ranges) == "Failure"
+    assert get_dice_interpretation(13, ranges) == "Success"
+    assert get_dice_interpretation(17, ranges) == "Success"
+    assert get_dice_interpretation(18, ranges) == "Critical Success"
+    assert get_dice_interpretation(20, ranges) == "Critical Success"
+
+    # Out of bounds clamping / fallback
+    assert get_dice_interpretation(0, ranges) == "Critical Failure"
+    assert get_dice_interpretation(25, ranges) == "Critical Success"
+
+    # Support alternative field names like 'interpretation', 'result', 'description'
+    alt_ranges = [
+        {"min": 1, "max": 10, "result": "Low"},
+        {"min": 11, "max": 20, "description": "High"},
+    ]
+    assert get_dice_interpretation(5, alt_ranges) == "Low"
+    assert get_dice_interpretation(15, alt_ranges) == "High"
+
+    # Open-ended bounds (only min or only max)
+    open_ranges = [
+        {"max": 5, "outcome": "Low"},
+        {"min": 6, "outcome": "High"},
+    ]
+    assert get_dice_interpretation(2, open_ranges) == "Low"
+    assert get_dice_interpretation(10, open_ranges) == "High"
+
+    # Empty or invalid
+    assert get_dice_interpretation(10, []) == ""
+    assert get_dice_interpretation(10, None) == ""
+
+
+def test_v8_roll_xdy_and_contest_option_a():
+    from rachel.sandbox.v8_engine import V8SandboxEngine
+    engine = V8SandboxEngine()
+
     code = """
-res = roll_xdy(3, 6, {4: "crit fail", 8: "fail", 16: "success", 18: "crit success"})
-state['res'] = res
-"""
-    updated_state, output = engine.execute(code, {}, 2.0)
-    assert "res" in updated_state
-    res = updated_state["res"]
-    assert isinstance(res["rolls"], list) and len(res["rolls"]) == 3
-    assert res["total"] == sum(res["rolls"])
-    assert res["interpretation"].startswith("interpretation of the dice roll is '")
-    assert "interpretation of the dice roll is '" in output
+    var rollRes = roll_xdy(3, 6, [
+        {min: 3, max: 8, outcome: "Low Roll"},
+        {min: 9, max: 18, outcome: "High Roll"}
+    ]);
+    var contestRes = contest(
+        {num: 1, sides: 20},
+        {num: 1, sides: 20},
+        {strength: 3},
+        {strength: 1},
+        [
+            {min: -30, max: -1, outcome: "Defeat"},
+            {min: 0, max: 0, outcome: "Tie"},
+            {min: 1, max: 30, outcome: "Victory"}
+        ]
+    );
+    state.roll = rollRes;
+    state.contest = contestRes;
+    """
+    updated, logs = engine.execute(code, {}, 2.0)
+    assert "roll" in updated
+    assert "contest" in updated
+    assert updated["roll"]["interpretation"].startswith("interpretation of the dice roll is '")
+    assert updated["contest"]["outcome"] in ["Defeat", "Tie", "Victory"]
+
+

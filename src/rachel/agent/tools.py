@@ -9,20 +9,89 @@ from rachel.sandbox.sandbox import get_sandbox_engine
 
 logger = logging.getLogger(__name__)
 
-def get_dice_interpretation(total: int, interpretation: dict[int | str, str]) -> str:
-    """Evaluate dice roll total against an interpretation dictionary mapping integer upper bounds to descriptions."""
-    sorted_items = []
+def get_dice_interpretation(total: int, interpretation: dict[int | str, str] | list[dict[str, Any]] | None) -> str:
+    """Evaluate dice roll total or contest diff against an interpretation list of range objects or legacy dict."""
+    if not interpretation:
+        return ""
+
+    # Option A: List of range objects, e.g. [{min: 1, max: 7, outcome: "Critical Failure"}, ...]
+    if isinstance(interpretation, list):
+        for item in interpretation:
+            if isinstance(item, dict):
+                min_val = item.get("min")
+                max_val = item.get("max")
+                outcome = (
+                    item.get("outcome")
+                    or item.get("interpretation")
+                    or item.get("result")
+                    or item.get("description")
+                    or ""
+                )
+                min_num = float(min_val) if min_val is not None else float("-inf")
+                max_num = float(max_val) if max_val is not None else float("inf")
+                if min_num <= total <= max_num:
+                    return str(outcome)
+
+        # Fallback if outside all explicit ranges: clamp to nearest range or first item
+        min_bound = float("inf")
+        max_bound = float("-inf")
+        min_item = None
+        max_item = None
+        for item in interpretation:
+            if isinstance(item, dict):
+                min_val = item.get("min")
+                max_val = item.get("max")
+                it_min = float(min_val) if min_val is not None else float("-inf")
+                it_max = float(max_val) if max_val is not None else float("inf")
+                if it_min < min_bound:
+                    min_bound = it_min
+                    min_item = item
+                if it_max > max_bound:
+                    max_bound = it_max
+                    max_item = item
+
+        if total < min_bound and min_item:
+            return str(
+                min_item.get("outcome")
+                or min_item.get("interpretation")
+                or min_item.get("result")
+                or min_item.get("description")
+                or ""
+            )
+        if total > max_bound and max_item:
+            return str(
+                max_item.get("outcome")
+                or max_item.get("interpretation")
+                or max_item.get("result")
+                or max_item.get("description")
+                or ""
+            )
+        if interpretation and isinstance(interpretation[0], dict):
+            first = interpretation[0]
+            return str(
+                first.get("outcome")
+                or first.get("interpretation")
+                or first.get("result")
+                or first.get("description")
+                or ""
+            )
+        return ""
+
+    # Legacy dictionary format: { "10": "Fail", "20": "Success" }
     if isinstance(interpretation, dict):
+        sorted_items = []
         for k, v in interpretation.items():
             try:
                 sorted_items.append((int(k), str(v)))
             except (ValueError, TypeError):
                 pass
-    sorted_items.sort(key=lambda x: x[0])
-    for k, v in sorted_items:
-        if total <= k:
-            return v
-    return sorted_items[-1][1] if sorted_items else ""
+        sorted_items.sort(key=lambda x: x[0])
+        for k, v in sorted_items:
+            if total <= k:
+                return v
+        return sorted_items[-1][1] if sorted_items else ""
+
+    return ""
 
 def make_tools(state_container: dict[str, Any], sandbox_timeout: float):
     """Return a list of LangChain tools that share ``state_container`` by

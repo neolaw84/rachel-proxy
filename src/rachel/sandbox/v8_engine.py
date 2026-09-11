@@ -85,16 +85,46 @@ def _v8_worker(
             _logs.push(msg);
         }
     };
-    function roll_xdy(numDice, numSides, interpretation) {
-        var rolls = [];
-        var total = 0;
-        for (var i = 0; i < numDice; i++) {
-            var r = Math.floor(Math.random() * numSides) + 1;
-            rolls.push(r);
-            total += r;
+    function _evaluate_interpretation(val, interpretation) {
+        if (!interpretation) return "";
+        if (Array.isArray(interpretation)) {
+            for (var i = 0; i < interpretation.length; i++) {
+                var item = interpretation[i];
+                if (item && typeof item === 'object') {
+                    var min = (item.min !== undefined && item.min !== null) ? Number(item.min) : -Infinity;
+                    var max = (item.max !== undefined && item.max !== null) ? Number(item.max) : Infinity;
+                    if (!isNaN(min) && !isNaN(max) && val >= min && val <= max) {
+                        return item.outcome || item.interpretation || item.result || item.description || "";
+                    }
+                }
+            }
+            var minBound = Infinity;
+            var maxBound = -Infinity;
+            var minItem = null;
+            var maxItem = null;
+            for (var j = 0; j < interpretation.length; j++) {
+                var it = interpretation[j];
+                if (it && typeof it === 'object') {
+                    var itMin = (it.min !== undefined && it.min !== null) ? Number(it.min) : -Infinity;
+                    var itMax = (it.max !== undefined && it.max !== null) ? Number(it.max) : Infinity;
+                    if (itMin < minBound) { minBound = itMin; minItem = it; }
+                    if (itMax > maxBound) { maxBound = itMax; maxItem = it; }
+                }
+            }
+            if (val < minBound && minItem) {
+                return minItem.outcome || minItem.interpretation || minItem.result || minItem.description || "";
+            }
+            if (val > maxBound && maxItem) {
+                return maxItem.outcome || maxItem.interpretation || maxItem.result || maxItem.description || "";
+            }
+            if (interpretation.length > 0 && interpretation[0] && typeof interpretation[0] === 'object') {
+                var first = interpretation[0];
+                return first.outcome || first.interpretation || first.result || first.description || "";
+            }
+            return "";
         }
-        var keys = [];
-        if (interpretation && typeof interpretation === 'object') {
+        if (typeof interpretation === 'object') {
+            var keys = [];
             for (var k in interpretation) {
                 if (Object.prototype.hasOwnProperty.call(interpretation, k)) {
                     var numKey = Number(k);
@@ -103,19 +133,28 @@ def _v8_worker(
                     }
                 }
             }
-        }
-        keys.sort(function(a, b) { return a - b; });
-        var interp = "";
-        for (var j = 0; j < keys.length; j++) {
-            if (total <= keys[j]) {
-                interp = interpretation[keys[j]] || interpretation[String(keys[j])];
-                break;
+            keys.sort(function(a, b) { return a - b; });
+            for (var kIdx = 0; kIdx < keys.length; kIdx++) {
+                if (val <= keys[kIdx]) {
+                    return interpretation[keys[kIdx]] || interpretation[String(keys[kIdx])];
+                }
+            }
+            if (keys.length > 0) {
+                var maxKey = keys[keys.length - 1];
+                return interpretation[maxKey] || interpretation[String(maxKey)];
             }
         }
-        if (!interp && keys.length > 0) {
-            var maxKey = keys[keys.length - 1];
-            interp = interpretation[maxKey] || interpretation[String(maxKey)];
+        return "";
+    }
+    function roll_xdy(numDice, numSides, interpretation) {
+        var rolls = [];
+        var total = 0;
+        for (var i = 0; i < numDice; i++) {
+            var r = Math.floor(Math.random() * numSides) + 1;
+            rolls.push(r);
+            total += r;
         }
+        var interp = _evaluate_interpretation(total, interpretation);
         var interpStr = "interpretation of the dice roll is '" + interp + "'";
         console.log("Rolled " + numDice + "d" + numSides + ": [" + rolls.join(", ") + "] = " + total + "\\n" + interpStr);
         return {
@@ -172,29 +211,7 @@ def _v8_worker(
         var p1_final = p1_total + p1_mod;
         var p2_final = p2_total + p2_mod;
         var diff = p1_final - p2_final;
-        var keys = [];
-        if (interpretation && typeof interpretation === 'object') {
-            for (var k in interpretation) {
-                if (Object.prototype.hasOwnProperty.call(interpretation, k)) {
-                    var numKey = Number(k);
-                    if (!isNaN(numKey)) {
-                        keys.push(numKey);
-                    }
-                }
-            }
-        }
-        keys.sort(function(a, b) { return a - b; });
-        var interp = "";
-        for (var j = 0; j < keys.length; j++) {
-            if (diff <= keys[j]) {
-                interp = interpretation[keys[j]] || interpretation[String(keys[j])];
-                break;
-            }
-        }
-        if (!interp && keys.length > 0) {
-            var maxKey = keys[keys.length - 1];
-            interp = interpretation[maxKey] || interpretation[String(maxKey)];
-        }
+        var interp = _evaluate_interpretation(diff, interpretation);
         var resultStr = "Contest results: " +
             "Party 1 rolled " + p1_num + "d" + p1_sides + ": [" + p1_rolls.join(", ") + "] (Total: " + p1_total + ") " +
             (p1_mod_details.length ? "with mods " + p1_mod_details.join(", ") + " " : "") + "= " + p1_final + ". " +

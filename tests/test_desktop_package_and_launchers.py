@@ -1,6 +1,7 @@
 """Unit and integration tests for desktop packaging and launcher scripts."""
 
 import os
+import shutil
 import subprocess
 import sys
 import zipfile
@@ -35,7 +36,10 @@ def test_launcher_files_exist():
 
 
 def test_launcher_shell_syntax():
-    """Verify bash syntax validity using bash -n."""
+    """Verify bash syntax validity using bash -n if bash is available."""
+    if not shutil.which("bash"):
+        pytest.skip("bash executable not found on this system")
+
     linux_sh = LAUNCHERS_DIR / "linux" / "launch.sh"
     mac_command = LAUNCHERS_DIR / "macos" / "launch.command"
 
@@ -105,14 +109,18 @@ def test_build_desktop_package_staging_and_zip(tmp_path, monkeypatch):
 
     # Test root detection inside extracted release
     # Run a test snippet replicating the root detection logic in launch.sh
-    bash_test_cmd = [
-        "bash",
-        "-c",
-        f'cd "{extract_dir}" && SCRIPT_DIR="$(pwd)" && if [ -f "$SCRIPT_DIR/pyproject.toml" ]; then echo "ROOT_FOUND"; fi',
-    ]
-    res = subprocess.run(bash_test_cmd, capture_output=True, text=True)
-    assert res.returncode == 0
-    assert "ROOT_FOUND" in res.stdout
+    if shutil.which("bash"):
+        bash_test_cmd = [
+            "bash",
+            "-c",
+            f'cd "{extract_dir}" && SCRIPT_DIR="$(pwd)" && if [ -f "$SCRIPT_DIR/pyproject.toml" ]; then echo "ROOT_FOUND"; fi',
+        ]
+        res = subprocess.run(bash_test_cmd, capture_output=True, text=True)
+        assert res.returncode == 0
+        assert "ROOT_FOUND" in res.stdout
+    else:
+        # On Windows without bash, verify pyproject.toml exists in extracted directory directly
+        assert (extract_dir / "pyproject.toml").exists()
 
 
 def test_windows_launcher_foreground_and_diagnostics():
