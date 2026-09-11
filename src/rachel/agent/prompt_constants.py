@@ -31,23 +31,23 @@ SANDBOX_INFO_V8 = (
     "  - AVOID re-declaring the `state`, `hidden_state`, or `plan` objects (e.g., do not write `let state = ...`).\n"
     "  - AVOID writing return statements.\n"
     "- **Global Sandbox Helper Functions**:\n"
-    "  1. `roll_xdy(numDice, numSides, interpretation)`: Rolls `numDice` dice each with `numSides` sides. Returns an object `{rolls: Array, total: Number, interpretation: String}`.\n"
-    "     * `interpretation` is an array of range objects: `[{min: Number, max: Number, outcome: String}]` mapping bounds (`min <= total <= max`) to outcome descriptions.\n"
-    "     * Example 1: `roll_xdy(3, 6, [{min: 3, max: 4, outcome: \"Critical Failure\"}, {min: 5, max: 8, outcome: \"Failure\"}, {min: 9, max: 15, outcome: \"Success\"}, {min: 16, max: 18, outcome: \"Critical Success\"}])`\n"
-    "     * Example 2: `roll_xdy(1, 20, [{min: 1, max: 1, outcome: \"Fumble\"}, {min: 2, max: 10, outcome: \"Fail\"}, {min: 11, max: 19, outcome: \"Success\"}, {min: 20, max: 20, outcome: \"Crit\"}])`\n"
+    "  1. `roll_xdy(numDice, numSides, interpretation)`: Rolls `numDice` dice each with `numSides` sides. Returns an object `{{rolls: Array, total: Number, interpretation: String}}`.\n"
+    "     * `interpretation` is an array of range objects: `[{{min: Number, max: Number, outcome: String}}]` mapping bounds (`min <= total <= max`) to outcome descriptions.\n"
+    "     * Example 1: `roll_xdy(3, 6, [{{min: 3, max: 4, outcome: \"Critical Failure\"}}, {{min: 5, max: 8, outcome: \"Failure\"}}, {{min: 9, max: 15, outcome: \"Success\"}}, {{min: 16, max: 18, outcome: \"Critical Success\"}}])`\n"
+    "     * Example 2: `roll_xdy(1, 20, [{{min: 1, max: 1, outcome: \"Fumble\"}}, {{min: 2, max: 10, outcome: \"Fail\"}}, {{min: 11, max: 19, outcome: \"Success\"}}, {{min: 20, max: 20, outcome: \"Crit\"}}])`\n"
     "     **ALWAYS INCLUDE non-empty `interpretation` range array, without which the dice roll will fail.**\n"
-    "  2. `contest(p1_dice, p2_dice, m1, m2, interpretation)`: Computes a stat contest. P1 roll + modifiers vs P2 roll + modifiers. Returns `{p1_total: Number, p1_final: Number, p2_total: Number, p2_final: Number, diff: Number, outcome: String}`.\n"
-    "     * `p1_dice` & `p2_dice` are objects: `{num: Number, sides: Number}`.\n"
+    "  2. `contest(p1_dice, p2_dice, m1, m2, interpretation)`: Computes a stat contest. P1 roll + modifiers vs P2 roll + modifiers. Returns `{{p1_total: Number, p1_final: Number, p2_total: Number, p2_final: Number, diff: Number, outcome: String}}`.\n"
+    "     * `p1_dice` & `p2_dice` are objects: `{{num: Number, sides: Number}}`.\n"
     "     * `m1` & `m2` are modifier objects mapping stat names to numeric modifiers.\n"
-    "     * `interpretation` is an array of range objects: `[{min: Number, max: Number, outcome: String}]` mapping difference bounds (`min <= diff <= max`) to outcome strings.\n"
-    "     * Example 1 (different dice sizes): `contest({num: 3, sides: 6}, {num: 4, sides: 5}, {\"strength\": 2}, {\"dexterity\": 1}, [{min: -30, max: -10, outcome: \"Total Defeat\"}, {min: -9, max: 0, outcome: \"Failure\"}, {min: 1, max: 10, outcome: \"Success\"}, {min: 11, max: 30, outcome: \"Total Victory\"}])`\n"
-    "     * Example 2 (same dice sizes): `contest({num: 1, sides: 20}, {num: 1, sides: 20}, {\"charisma\": 3}, {\"intelligence\": 0}, [{min: -30, max: -10, outcome: \"Rejected\"}, {min: -9, max: 0, outcome: \"Unconvinced\"}, {min: 1, max: 30, outcome: \"Charmed\"}])`\n"
+    "     * `interpretation` is an array of range objects: `[{{min: Number, max: Number, outcome: String}}]` mapping difference bounds (`min <= diff <= max`) to outcome strings.\n"
+    "     * Example 1 (different dice sizes): `contest({{num: 3, sides: 6}}, {{num: 4, sides: 5}}, {{\"strength\": 2}}, {{\"dexterity\": 1}}, [{{min: -30, max: -10, outcome: \"Total Defeat\"}}, {{min: -9, max: 0, outcome: \"Failure\"}}, {{min: 1, max: 10, outcome: \"Success\"}}, {{min: 11, max: 30, outcome: \"Total Victory\"}}])`\n"
+    "     * Example 2 (same dice sizes): `contest({{num: 1, sides: 20}}, {{num: 1, sides: 20}}, {{\"charisma\": 3}}, {{\"intelligence\": 0}}, [{{min: -30, max: -10, outcome: \"Rejected\"}}, {{min: -9, max: 0, outcome: \"Unconvinced\"}}, {{min: 1, max: 30, outcome: \"Charmed\"}}])`\n"
     "     **ALWAYS INCLUDE non-empty `interpretation` range array, without which the contest roll will fail.**\n"
     "  3. `update_plan_status(updates)`: Updates the status of items in the global `plan` array. Returns status string.\n"
-    "     * `updates` is an array of objects: `[{id: Identifier, status: String}]` (valid status values: 'to-do', 'in-progress', 'completed', 'failed', 'abandoned').\n"
-    "     * Example 1 (multi-update): `update_plan_status([{id: 1, status: \"completed\"}, {id: 2, status: \"in-progress\"}])`\n"
-    "     * Example 2 (single-update): `update_plan_status([{id: \"find_key\", status: \"completed\"}])`\n"
-    "     * Example 3 (abandoning path): `update_plan_status([{id: \"convince_guard\", status: \"abandoned\"}])`\n"
+    "     * `updates` is an array of objects: `[{{id: Identifier, status: String}}]` (valid status values: 'to-do', 'in-progress', 'completed', 'failed', 'abandoned').\n"
+    "     * Example 1 (multi-update): `update_plan_status([{{id: 1, status: \"completed\"}}, {{id: 2, status: \"in-progress\"}}])`\n"
+    "     * Example 2 (single-update): `update_plan_status([{{id: \"find_key\", status: \"completed\"}}])`\n"
+    "     * Example 3 (abandoning path): `update_plan_status([{{id: \"convince_guard\", status: \"abandoned\"}}])`\n"
 )
 
 STATE_CONSTRAINTS_INFO_TEMPLATE = (
@@ -118,7 +118,7 @@ STATIC_SYSTEM_INSTRUCTION_TEMPLATE = (
     "- **IMPORTANT Directives on Dice rolls and contests**\n" 
     "  - ALWAYS provide *fair* interpretation. You can make certain outcomes hard or easy (as per the other instructions) but never pre-arrange an outcome by making all outcomes the same/similar interpretation.\n"
     "    An example of *unfair* interpretation to *AVOID* is:\n"
-    '    [{ "min": 3, "max": 4, "outcome": "user loses miserably"}, { "min": 5, "max": 12, "outcome": "user loses" }, { "min": 13, "max": 18, "outcome": "user almost had a chance but sadly user loses" }]. Here, no matter what number 3d6 roll provides, user always loses.\n'
+    '    [{{ min: 3, max: 4, outcome: "user loses miserably"}}, {{ min: 5, max: 12, outcome: "user loses" }}, {{ min: 13, max: 18, outcome: "user almost had a chance but sadly user loses" }}]. Here, no matter what number 3d6 roll provides, user always loses.\n'
     "  - NEVER re-interpret and/or change the interpretation after you see the dice roll/contest results to suit the story or plan.\n"
 )
 
