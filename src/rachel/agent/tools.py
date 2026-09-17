@@ -199,6 +199,13 @@ def make_tools(state_container: dict[str, Any], sandbox_timeout: float):
     )
 
     def _submit_plan(items: list) -> str:
+        import rachel.config as config
+        if getattr(config, "PLAN_TRIGGER_TYPE", "periodic") == "disabled":
+            return (
+                "Notice: Story planning updates via submit_plan are currently disabled by system policy. "
+                "Plan modifications were not applied. Please proceed with story narration and call end_turn, "
+                "or use update_plan_status() in execute_code_sandbox to adjust existing item statuses."
+            )
         rpg = state_container.get("rpg_state", {})
         if isinstance(rpg, dict):
             rpg["plan"] = items

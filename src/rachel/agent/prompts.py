@@ -166,7 +166,8 @@ def get_dynamic_turn_directive(
     )
 
 
-    return DYNAMIC_TURN_DIRECTIVE_TEMPLATE.format(
+    import rachel.config as config
+    rendered_directive = DYNAMIC_TURN_DIRECTIVE_TEMPLATE.format(
         total_tasks=total_tasks,
         task_word=task_word,
         tasks_block=tasks_block,
@@ -175,6 +176,12 @@ def get_dynamic_turn_directive(
         current_iteration=current_iteration,
         rem_iterations=rem_iterations,
     )
+    if getattr(config, "PLAN_TRIGGER_TYPE", "periodic") == "disabled":
+        rendered_directive += (
+            "\n\n- Notice: Story planning updates via `submit_plan` are disabled by system policy. "
+            "Do not call `submit_plan`. Use `update_plan_status()` inside `execute_code_sandbox` to adjust item statuses."
+        )
+    return rendered_directive
 
 
 def get_summary_prompt(
