@@ -72,15 +72,15 @@ def bump_version(current_version: str, bump_type: str) -> str:
     elif b_type in ("a", "alpha"):
         if label.lower() in ("a", "alpha") and num is not None:
             return f"{major}.{minor}.{micro}a{num + 1}"
-        return f"{major}.{minor}.{micro}a1"
+        return f"{major}.{minor}.{micro}a0"
     elif b_type in ("b", "beta"):
         if label.lower() in ("b", "beta") and num is not None:
             return f"{major}.{minor}.{micro}b{num + 1}"
-        return f"{major}.{minor}.{micro}b1"
+        return f"{major}.{minor}.{micro}b0"
     elif b_type == "rc":
         if label.lower() == "rc" and num is not None:
             return f"{major}.{minor}.{micro}rc{num + 1}"
-        return f"{major}.{minor}.{micro}rc1"
+        return f"{major}.{minor}.{micro}rc0"
     elif b_type in ("num", "build", "after-label-number", "default"):
         if label and num is not None:
             return f"{major}.{minor}.{micro}{label}{num + 1}"

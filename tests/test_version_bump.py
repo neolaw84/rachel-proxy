@@ -35,16 +35,19 @@ def test_bump_version_release():
 
 def test_bump_version_labels():
     # Alpha
-    assert bump_version("0.1.1", "a") == "0.1.1a1"
-    assert bump_version("0.1.1a0", "a") == "0.1.1a1"
+    assert bump_version("0.1.1", "a") == "0.1.1a0"
+    assert bump_version("0.1.2b2", "a") == "0.1.2a0"
+    assert bump_version("0.1.3a0", "alpha") == "0.1.3a1"
     assert bump_version("0.1.1a1", "alpha") == "0.1.1a2"
     # Beta
-    assert bump_version("0.1.1", "b") == "0.1.1b1"
-    assert bump_version("0.1.1b1", "beta") == "0.1.1b2"
-    assert bump_version("0.1.1b2", "b") == "0.1.1b3"
+    assert bump_version("0.1.1", "b") == "0.1.1b0"
+    assert bump_version("0.1.3a2", "beta") == "0.1.3b0"
+    assert bump_version("0.1.2b2", "beta") == "0.1.2b3"
+    assert bump_version("0.1.1b1", "b") == "0.1.1b2"
     # Release candidate
-    assert bump_version("0.1.1", "rc") == "0.1.1rc1"
-    assert bump_version("0.1.1rc1", "rc") == "0.1.1rc2"
+    assert bump_version("0.1.1", "rc") == "0.1.1rc0"
+    assert bump_version("0.1.2b3", "rc") == "0.1.2rc0"
+    assert bump_version("0.1.2rc0", "rc") == "0.1.2rc1"
 
 
 def test_bump_version_after_label_number_and_default():
