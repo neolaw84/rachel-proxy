@@ -14,9 +14,15 @@ jobs:
   test:
     name: Run Tests & Coverage Gate
     runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.get_version.outputs.release_tag }}
+      is_prerelease: ${{ steps.get_version.outputs.is_prerelease }}
+      tag_exists: ${{ steps.get_version.outputs.tag_exists }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -40,10 +46,52 @@ jobs:
         run: |
           pytest --cov=src --cov-fail-under=75
 
+      - name: Extract Version & Compute Tag
+        id: get_version
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+        run: |
+          python3 -c "
+          import re, subprocess, os
+          from pathlib import Path
+
+          content = Path('pyproject.toml').read_text(encoding='utf-8')
+          m = re.search(r'^version\s*=\s*[\"\']([^\"\']+)[\"\']', content, re.MULTILINE)
+          if not m:
+              raise SystemExit('Version not found in pyproject.toml')
+          
+          raw_ver = m.group(1).strip()
+          
+          # Convert PEP 440 (e.g. 0.1.2rc0) to tag format (e.g. v0.1.2-rc0)
+          tag_match = re.match(r'^(\d+\.\d+\.\d+)(?:([a-zA-Z]+|\.dev|\.post|-beta|-alpha|-rc)(\d+))?$', raw_ver)
+          if tag_match:
+              base, label, num = tag_match.groups()
+              if label:
+                  clean_label = label.lstrip('.-')
+                  tag = f'v{base}-{clean_label}{num}'
+                  is_prerelease = 'true'
+              else:
+                  tag = f'v{base}'
+                  is_prerelease = 'false'
+          else:
+              tag = f'v{raw_ver}'
+              is_prerelease = 'false'
+
+          # Check if tag already exists in git
+          check_tag = subprocess.run(['git', 'tag', '-l', tag], capture_output=True, text=True)
+          tag_exists = 'true' if tag in check_tag.stdout.split() else 'false'
+
+          print(f'Computed tag: {tag} (prerelease: {is_prerelease}, exists: {tag_exists})')
+          
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f'release_tag={tag}\n')
+              f.write(f'is_prerelease={is_prerelease}\n')
+              f.write(f'tag_exists={tag_exists}\n')
+          "
+
   build-desktop-packages:
     name: Build Desktop Package (${{ matrix.platform }})
     needs: test
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: needs.test.outputs.tag_exists != 'true' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -84,14 +132,18 @@ jobs:
       - name: Release Artifacts to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ needs.test.outputs.release_tag }}
+          name: Release ${{ needs.test.outputs.release_tag }}
+          prerelease: ${{ needs.test.outputs.is_prerelease == 'true' }}
+          generate_release_notes: true
           files: dist/rpg-agent-*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   publish-pypi:
     name: Build & Publish PyPI Package
-    needs: test
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test, build-desktop-packages]
+    if: needs.test.outputs.tag_exists != 'true' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-latest
     permissions:
       contents: read
