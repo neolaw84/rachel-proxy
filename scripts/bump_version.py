@@ -25,6 +25,7 @@ Environment Variable:
 import argparse
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -40,6 +41,7 @@ TAG_PATTERN = re.compile(
     r"\[bump:(major|minor|micro|patch|release|b|beta|rc|a|alpha|build|num|after-label-number|skip|none)\]",
     re.IGNORECASE,
 )
+SKIP_PATTERN = re.compile(r"\[(skip-bump|no-bump)\]", re.IGNORECASE)
 
 
 def bump_version(current_version: str, bump_type: str) -> str:
@@ -83,7 +85,7 @@ def bump_version(current_version: str, bump_type: str) -> str:
         if label and num is not None:
             return f"{major}.{minor}.{micro}{label}{num + 1}"
         return f"{major}.{minor}.{micro + 1}a0"
-    elif b_type in ("skip", "none"):
+    elif b_type in ("skip", "none", "skip-bump", "no-bump"):
         return current_version
     else:
         raise ValueError(f"Unknown bump type: '{bump_type}'")
@@ -93,7 +95,7 @@ def update_pyproject_version(
     pyproject_path: Path, bump_type: str
 ) -> tuple[str, str] | None:
     """Update version in pyproject.toml and return (old_version, new_version), or None if skipped."""
-    if bump_type.lower() in ("skip", "none"):
+    if bump_type.lower() in ("skip", "none", "skip-bump", "no-bump"):
         return None
 
     content = pyproject_path.read_text(encoding="utf-8")
@@ -118,6 +120,44 @@ def update_pyproject_version(
     return old_version, new_version
 
 
+def extract_commit_message_from_proc() -> str:
+    """Extract commit message by inspecting git command line arguments from parent processes."""
+    pid = os.getppid()
+    while pid > 1:
+        try:
+            cmdline_path = Path(f"/proc/{pid}/cmdline")
+            if not cmdline_path.exists():
+                break
+            raw_args = cmdline_path.read_bytes().split(b"\x00")
+            args = [a.decode("utf-8", errors="ignore") for a in raw_args]
+            for i, arg in enumerate(args):
+                if arg in ("-m", "--message") and i + 1 < len(args):
+                    return args[i + 1]
+                if arg.startswith("-m") and len(arg) > 2:
+                    return arg[2:]
+                if arg.startswith("--message="):
+                    return arg.split("=", 1)[1]
+                if arg in ("-F", "--file") and i + 1 < len(args):
+                    fpath = Path(args[i + 1])
+                    if fpath.exists():
+                        return fpath.read_text(encoding="utf-8", errors="ignore")
+                if arg.startswith("--file="):
+                    fpath = Path(arg.split("=", 1)[1])
+                    if fpath.exists():
+                        return fpath.read_text(encoding="utf-8", errors="ignore")
+
+            stat_path = Path(f"/proc/{pid}/stat")
+            if stat_path.exists():
+                stat_parts = stat_path.read_text().split()
+                pid = int(stat_parts[3])
+            else:
+                break
+        except Exception:
+            break
+
+    return ""
+
+
 def resolve_bump_type(commit_msg_file: str | None = None, cli_type: str | None = None) -> str:
     """Determine bump type from CLI, environment, commit message tag, or fallback to default."""
     if cli_type:
@@ -127,14 +167,25 @@ def resolve_bump_type(commit_msg_file: str | None = None, cli_type: str | None =
     if env_bump:
         return env_bump
 
+    # 1. Check commit message file if provided
+    msg_text = ""
     if commit_msg_file and Path(commit_msg_file).exists():
         try:
-            msg = Path(commit_msg_file).read_text(encoding="utf-8")
-            tag_match = TAG_PATTERN.search(msg)
-            if tag_match:
-                return tag_match.group(1).lower()
+            msg_text = Path(commit_msg_file).read_text(encoding="utf-8", errors="ignore")
         except Exception:
             pass
+
+    # 2. Check parent process cmdline
+    if not msg_text:
+        msg_text = extract_commit_message_from_proc()
+
+    # 3. Check for tags in message text
+    if msg_text:
+        if SKIP_PATTERN.search(msg_text):
+            return "skip"
+        tag_match = TAG_PATTERN.search(msg_text)
+        if tag_match:
+            return tag_match.group(1).lower()
 
     return "default"
 
@@ -182,7 +233,17 @@ def main() -> int:
         result = update_pyproject_version(target_path, bump_type)
         if result:
             old_ver, new_ver = result
-            print(f"[version-bump] Updated {target_path.name}: {old_ver} -> {new_ver} (bump:{bump_type})")
+            # Stage pyproject.toml into the active git commit transaction if inside a git repo
+            try:
+                subprocess.run(
+                    ["git", "add", str(target_path)],
+                    cwd=target_path.parent,
+                    check=True,
+                    capture_output=True,
+                )
+            except Exception:
+                pass
+            print(f"[version-bump] Updated {target_path.name}: {old_ver} -> {new_ver} (bump:{bump_type}) [auto-staged]")
         else:
             print(f"[version-bump] No version bump performed (type: {bump_type}).")
     except Exception as e:
