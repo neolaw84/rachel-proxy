@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -e
+
+# Do not bump version on merge commits or interactive/rebase apply unless forced
+if [ -f .git/MERGE_HEAD ] || [ -d .git/rebase-merge ] || [ -d .git/rebase-apply ]; then
+    exit 0
+fi
+
+# Locate Python in venv or fallback to python3
+if [ -f "venv/bin/python" ]; then
+    PYTHON_BIN="venv/bin/python"
+elif command -v python3 >/dev/null 2>&1; then
+    PYTHON_BIN="python3"
+else
+    PYTHON_BIN="python"
+fi
+
+"$PYTHON_BIN" scripts/bump_version.py
