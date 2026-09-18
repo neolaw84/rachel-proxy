@@ -156,7 +156,7 @@ async def _stream_generator(
         except asyncio.TimeoutError:
             continue
 
-        if event_type in ("reasoning", "tool_log"):
+        if event_type in ("reasoning", "tool_log", "orchestration"):
             delta: dict[str, Any] = {"reasoning_content": text}
         else:
             delta = {"content": text}

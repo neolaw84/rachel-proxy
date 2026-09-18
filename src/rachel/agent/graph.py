@@ -242,6 +242,15 @@ async def run_agent(
             if rc:
                 reasoning_parts.append(rc)
     final_reasoning = "\n\n".join(r for r in reasoning_parts if r)
+    orch_logs = state_container.get("orchestration_logs") or []
+    from rachel.config import INCLUDE_REASONING
+    if INCLUDE_REASONING and orch_logs:
+        orch_summary = "".join(orch_logs).strip()
+        if orch_summary:
+            if final_reasoning:
+                final_reasoning = f"{orch_summary}\n\n{final_reasoning}"
+            else:
+                final_reasoning = orch_summary
 
     return {
         "content": final_content,

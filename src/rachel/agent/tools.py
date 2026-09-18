@@ -199,8 +199,10 @@ def make_tools(state_container: dict[str, Any], sandbox_timeout: float):
     )
 
     def _submit_plan(items: list) -> str:
+        logger.debug("[Tool submit_plan] Tool invoked directly with items: type=%s, value=%r", type(items).__name__, items)
         import rachel.config as config
         if getattr(config, "PLAN_TRIGGER_TYPE", "periodic") == "disabled":
+            logger.debug("[Tool submit_plan] Plan updates disabled by policy.")
             return (
                 "Notice: Story planning updates via submit_plan are currently disabled by system policy. "
                 "Plan modifications were not applied. Please proceed with story narration and call end_turn, "
@@ -209,6 +211,7 @@ def make_tools(state_container: dict[str, Any], sandbox_timeout: float):
         rpg = state_container.get("rpg_state", {})
         if isinstance(rpg, dict):
             rpg["plan"] = items
+        logger.debug("[Tool submit_plan] Successfully saved plan items to rpg_state.")
         return "Plan submitted successfully."
 
     submit_plan = StructuredTool.from_function(

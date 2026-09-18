@@ -21,6 +21,8 @@ from rachel.routes.sessions import router as sessions_router
 from rachel.routes.system import detect_public_url, router as system_router
 
 logging.basicConfig(level=logging.INFO)
+logging.getLogger("rachel.agent.nodes").setLevel(logging.WARNING)
+logging.getLogger("rachel.agent.tools").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 

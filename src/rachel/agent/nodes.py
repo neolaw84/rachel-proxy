@@ -1,5 +1,6 @@
 """Nodes and conditional routing functions for the LangGraph RPG Agent."""
 
+import asyncio
 import json
 import logging
 import re
@@ -22,6 +23,15 @@ from rachel.agent.openrouter import convert_to_openai_messages, call_openrouter_
 from rachel.sandbox.sandbox import get_sandbox_engine
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.WARNING)
+
+# Ensure WARNING logs are outputted to console even when root logger defaults differently
+if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
+    _sh = logging.StreamHandler()
+    _sh.setLevel(logging.WARNING)
+    _sh.setFormatter(logging.Formatter("[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s", datefmt="%H:%M:%S"))
+    logger.addHandler(_sh)
+
 
 
 def _strip_fenced_code_block(text: str) -> str:
@@ -327,6 +337,21 @@ from rachel.sandbox.schemas import (
 
 
 
+async def _emit_orchestration_signal(
+    stream_queue: asyncio.Queue | None,
+    state_container: dict[str, Any],
+    message: str,
+) -> None:
+    """Emit an orchestration progress signal to stream_queue and record in state_container."""
+    from rachel.config import INCLUDE_REASONING
+    if not INCLUDE_REASONING:
+        return
+    logs = state_container.setdefault("orchestration_logs", [])
+    logs.append(message)
+    if stream_queue is not None:
+        await stream_queue.put(("orchestration", message))
+
+
 def _build_summary_node(
     api_key: str,
     state_container: dict[str, Any],
@@ -356,6 +381,13 @@ def _build_summary_node(
         if end_summary_turn < start_summary_turn:
             logger.info("Summary node: No completed turns to summarize yet (current_turn=%d, last_summary_turn=%d)", current_turn, last_summary_turn)
             return {"rpg_state": rpg}
+
+        stream_queue = config.get("configurable", {}).get("stream_queue")
+        await _emit_orchestration_signal(
+            stream_queue,
+            state_container,
+            f"[Summary: Compacting narrative memory (turns {start_summary_turn}-{end_summary_turn})...]\n",
+        )
 
         session_id = config.get("configurable", {}).get("session_id") or state_container.get("session_id")
         session_kwargs = {}
@@ -463,8 +495,18 @@ def _build_summary_node(
             state_container["last_summary_turn"] = end_summary_turn
 
             logger.info("Graph Summary node update complete: %s", summary_delta)
+            await _emit_orchestration_signal(
+                stream_queue,
+                state_container,
+                "[Summary: Memory compaction complete.]\n",
+            )
         except Exception as exc:
             logger.error("Failed to run summary node update: %s", exc)
+            await _emit_orchestration_signal(
+                stream_queue,
+                state_container,
+                f"[Summary: Failed to update summary ({exc})]\n",
+            )
 
         return {"rpg_state": rpg}
     return summary_node
@@ -565,17 +607,38 @@ def _build_plan_node(
         engine = get_sandbox_engine()
         all_tools = get_all_tools_schema(engine.name)
 
+        stream_queue = config.get("configurable", {}).get("stream_queue")
+        await _emit_orchestration_signal(
+            stream_queue,
+            state_container,
+            "[Planning: Reviewing story objectives & NPC directives...]\n",
+        )
+
         errors = []
         plan_updated = False
         max_retries = max(1, PLAN_MAX_RETRIES)
         for attempt in range(max_retries):
             current_msgs = [dict(m) for m in history_msgs]
             if errors:
+                await _emit_orchestration_signal(
+                    stream_queue,
+                    state_container,
+                    f"[Planning: Retrying update (attempt {attempt + 1}/{max_retries})...]\n",
+                )
                 error_context = "\n".join(errors)
                 current_msgs.append({
                     "role": "user",
                     "content": f"[RETRY DIRECTIVE]: The previous attempt failed with error(s):\n{error_context}\n\nPlease try again and call submit_plan tool with valid items matching schema."
                 })
+
+            logger.debug(
+                "[Plan Node] Attempt %d/%d starting. Target model: %s, base_url: %s, messages count: %d",
+                attempt + 1,
+                max_retries,
+                target_model,
+                base_url or PLAN_BASE_URL,
+                len(current_msgs),
+            )
 
             try:
                 direct_res = await _GraphDelegate.call_openrouter_direct(
@@ -594,24 +657,66 @@ def _build_plan_node(
                 else:
                     plan_response, tcs = str(direct_res), []
 
+                logger.debug(
+                    "[Plan Node] Attempt %d/%d received response. Raw plan_response: %r | Tool calls count: %d",
+                    attempt + 1,
+                    max_retries,
+                    plan_response,
+                    len(tcs),
+                )
+
                 new_plan = None
                 if tcs:
-                    for tc in tcs:
-                        if tc.get("function", {}).get("name") == "submit_plan":
-                            raw_args = tc.get("function", {}).get("arguments", "")
+                    for i, tc in enumerate(tcs):
+                        fn_name = tc.get("function", {}).get("name")
+                        raw_args = tc.get("function", {}).get("arguments", "")
+                        logger.debug(
+                            "[Plan Node] Tool call #%d: function=%r, raw arguments=%r",
+                            i + 1,
+                            fn_name,
+                            raw_args,
+                        )
+                        if fn_name == "submit_plan":
                             try:
                                 parsed = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+                                logger.debug(
+                                    "[Plan Node] Successfully parsed submit_plan arguments JSON (type=%s): %r",
+                                    type(parsed).__name__,
+                                    parsed,
+                                )
                                 if isinstance(parsed, dict) and "items" in parsed and isinstance(parsed["items"], list):
                                     new_plan = parsed["items"]
-                            except Exception:
-                                pass
+                                    logger.debug("[Plan Node] Extracted %d plan items from arguments['items']", len(new_plan))
+                                else:
+                                    logger.debug(
+                                        "[Plan Node] Parsed arguments did not contain 'items' list: %r",
+                                        parsed,
+                                    )
+                            except Exception as parse_err:
+                                logger.debug(
+                                    "[Plan Node] JSON parsing of submit_plan arguments failed: %s (raw: %r)",
+                                    parse_err,
+                                    raw_args,
+                                )
 
                 if new_plan is None:
                     clean_resp = _strip_fenced_code_block(plan_response)
+                    logger.debug(
+                        "[Plan Node] new_plan is None after inspecting tool calls. Attempting fallback parse of plan_response (cleaned: %r, raw: %r)",
+                        clean_resp,
+                        plan_response,
+                    )
                     new_plan = json.loads(clean_resp)
+                    logger.debug(
+                        "[Plan Node] Fallback parse succeeded (type=%s): %r",
+                        type(new_plan).__name__,
+                        new_plan,
+                    )
 
                 if not isinstance(new_plan, list):
                     raise ValueError("Output must be a JSON array of objects.")
+
+                logger.debug("[Plan Node] Validating %d items in plan array", len(new_plan))
 
                 normalized = []
                 for idx, item in enumerate(new_plan, 1):
@@ -646,15 +751,34 @@ def _build_plan_node(
                     "Graph Plan node update complete:\n%s",
                     json.dumps(rpg["plan"], indent=2, ensure_ascii=False)
                 )
+                await _emit_orchestration_signal(
+                    stream_queue,
+                    state_container,
+                    f"[Planning: Checklist updated ({len(normalized)} active items).]\n",
+                )
                 plan_updated = True
                 break
             except Exception as exc:
                 err_msg = f"Attempt {attempt + 1} failed: {str(exc)}"
-                logger.warning("Plan update retry loop warning: %s", err_msg)
+                logger.warning(
+                    "[Plan Node] Plan update retry loop warning on attempt %d/%d: %s | model=%s | plan_response=%r | tool_calls=%r",
+                    attempt + 1,
+                    max_retries,
+                    err_msg,
+                    target_model,
+                    plan_response if 'plan_response' in locals() else '<unset>',
+                    tcs if 'tcs' in locals() else '<unset>',
+                    exc_info=True,
+                )
                 errors.append(err_msg)
 
         if not plan_updated:
             logger.error("Failed to run plan node update after %d attempts. Errors: %s", max_retries, errors)
+            await _emit_orchestration_signal(
+                stream_queue,
+                state_container,
+                "[Planning: Failed to update plan after max retries.]\n",
+            )
 
         return {"rpg_state": rpg}
     return plan_node
@@ -743,12 +867,24 @@ def _build_cleanup_node(
 
         all_tools = get_all_tools_schema(engine.name)
 
+        stream_queue = config.get("configurable", {}).get("stream_queue")
+        await _emit_orchestration_signal(
+            stream_queue,
+            state_container,
+            "[Cleanup: Validating game state constraints & pruning obsolete entries...]\n",
+        )
+
         errors = []
         cleanup_updated = False
         max_retries = max(1, CLEANUP_MAX_RETRIES)
         for attempt in range(max_retries):
             current_msgs = [dict(m) for m in history_msgs]
             if errors:
+                await _emit_orchestration_signal(
+                    stream_queue,
+                    state_container,
+                    f"[Cleanup: Retrying script (attempt {attempt + 1}/{max_retries})...]\n",
+                )
                 error_context = "\n".join(errors)
                 current_msgs.append({
                     "role": "user",
@@ -822,6 +958,11 @@ def _build_cleanup_node(
                 state_container["last_cleanup_turn"] = current_turn
 
                 logger.info("Graph Cleanup node execution complete. Sandbox Output: %s", output or "<none>")
+                await _emit_orchestration_signal(
+                    stream_queue,
+                    state_container,
+                    "[Cleanup: State validation complete.]\n",
+                )
                 cleanup_updated = True
                 break
             except Exception as exc:
@@ -831,6 +972,11 @@ def _build_cleanup_node(
 
         if not cleanup_updated:
             logger.error("Failed to run cleanup node after %d attempts. Errors: %s", max_retries, errors)
+            await _emit_orchestration_signal(
+                stream_queue,
+                state_container,
+                "[Cleanup: Failed to run state cleanup after max retries.]\n",
+            )
             # Revert states to originals in case we modified the containers partially
             if isinstance(rpg, dict) and "state" in rpg and "hidden_state" in rpg:
                 rpg["state"] = orig_state
@@ -927,16 +1073,33 @@ def _build_pre_action_node(
     async def pre_action_node(state: AgentState, config: RunnableConfig) -> dict:
         import asyncio
         tasks = []
+        task_names = []
         conf = config.get("configurable", {})
+        stream_queue = conf.get("stream_queue")
+
         if conf.get("plan_fired", False):
             tasks.append(plan_fn(state, config))
+            task_names.append("Story Planning")
         if conf.get("summary_fired", False):
             tasks.append(summary_fn(state, config))
+            task_names.append("Memory Summarization")
         if conf.get("cleanup_fired", False):
             tasks.append(cleanup_fn(state, config))
+            task_names.append("State Cleanup")
 
         if tasks:
+            names_str = ", ".join(task_names)
+            await _emit_orchestration_signal(
+                stream_queue,
+                state_container,
+                f"[Background Tasks: {names_str} triggered...]\n",
+            )
             await asyncio.gather(*tasks)
+            await _emit_orchestration_signal(
+                stream_queue,
+                state_container,
+                "[Background Tasks: All tasks completed.]\n\n",
+            )
 
         return {"rpg_state": state_container["rpg_state"]}
     return pre_action_node
