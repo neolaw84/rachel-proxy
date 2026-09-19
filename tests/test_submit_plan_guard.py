@@ -9,8 +9,8 @@ from rachel.agent.prompts import get_dynamic_turn_directive
 from rachel.sandbox.schemas import get_all_tools_schema
 
 
-def test_submit_plan_disabled_guard():
-    """Verify that submit_plan rejects mutations and returns a notice when PLAN_TRIGGER_TYPE is disabled."""
+def test_submit_plan_disabled_in_progress_mode():
+    """Verify that submit_plan rejects mutations, discards items, and returns an ugly reprimand in Progress Mode."""
     initial_plan = [{"id": 1, "description": "Original Goal", "status": "to-do", "remark": ""}]
     state_container = {
         "rpg_state": {
@@ -21,7 +21,8 @@ def test_submit_plan_disabled_guard():
         }
     }
 
-    with patch("rachel.config.PLAN_TRIGGER_TYPE", "disabled"):
+    # In Progress Mode under periodic planning
+    with patch("rachel.config.PLAN_TRIGGER_TYPE", "periodic"):
         tools = make_tools(state_container, sandbox_timeout=2.0)
         tool_map = {t.name: t for t in tools}
         assert "submit_plan" in tool_map
@@ -29,36 +30,25 @@ def test_submit_plan_disabled_guard():
         new_items = [{"id": 2, "description": "Hacked Goal", "status": "completed", "remark": ""}]
         result = tool_map["submit_plan"].invoke({"items": new_items})
 
-        assert "disabled by system policy" in result
+        assert "--- Tool Execution Error: submit_plan is disabled in Progress Mode ---" in result
+        assert "strictly prohibited during Progress Mode" in result
+        assert "DISCARDED" in result
+        assert "wasted 1 tool-calling iteration" in result
+        assert state_container["rpg_state"]["plan"] == initial_plan
+
+    # In Progress Mode under disabled planning
+    with patch("rachel.config.PLAN_TRIGGER_TYPE", "disabled"):
+        tools = make_tools(state_container, sandbox_timeout=2.0)
+        tool_map = {t.name: t for t in tools}
+        result = tool_map["submit_plan"].invoke({"items": [{"id": 3, "description": "Another Goal"}]})
+
+        assert "--- Tool Execution Error: submit_plan is disabled in Progress Mode ---" in result
+        assert "DISCARDED" in result
         assert state_container["rpg_state"]["plan"] == initial_plan
 
 
-def test_submit_plan_enabled_normal():
-    """Verify that submit_plan updates the plan normally when PLAN_TRIGGER_TYPE is periodic or probabilistic."""
-    initial_plan = [{"id": 1, "description": "Original Goal", "status": "to-do", "remark": ""}]
-    state_container = {
-        "rpg_state": {
-            "state": {},
-            "hidden_state": {},
-            "plan": list(initial_plan),
-            "summary": "",
-        }
-    }
-
-    with patch("rachel.config.PLAN_TRIGGER_TYPE", "periodic"):
-        tools = make_tools(state_container, sandbox_timeout=2.0)
-        tool_map = {t.name: t for t in tools}
-        assert "submit_plan" in tool_map
-
-        new_items = [{"id": 2, "description": "Updated Goal", "status": "in-progress", "remark": ""}]
-        result = tool_map["submit_plan"].invoke({"items": new_items})
-
-        assert result == "Plan submitted successfully."
-        assert state_container["rpg_state"]["plan"] == new_items
-
-
-def test_dynamic_turn_directive_plan_disabled():
-    """Verify that get_dynamic_turn_directive injects the disabled plan notice only when planning is disabled."""
+def test_dynamic_turn_directive_submit_plan_disabled_notices():
+    """Verify that get_dynamic_turn_directive injects appropriate disabled plan notice."""
     rpg_state = {
         "state": {"hp": 100},
         "plan": [],
@@ -86,7 +76,7 @@ def test_dynamic_turn_directive_plan_disabled():
             messages=[HumanMessage(content="Hello")],
             turn_number=1,
         )
-        assert "Story planning updates via `submit_plan` are disabled by system policy" not in directive
+        assert "Story planning updates via `submit_plan` are disabled in Progress Mode" in directive
 
 
 def test_tool_binding_schemas_static_and_intact():

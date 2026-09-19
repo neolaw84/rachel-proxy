@@ -181,6 +181,11 @@ def get_dynamic_turn_directive(
             "\n\n- Notice: Story planning updates via `submit_plan` are disabled by system policy. "
             "Do not call `submit_plan`. Use `update_plan_status()` inside `execute_code_sandbox` to adjust item statuses."
         )
+    else:
+        rendered_directive += (
+            "\n\n- Notice: Story planning updates via `submit_plan` are disabled in Progress Mode. "
+            "Do not call `submit_plan`. Use `update_plan_status()` inside `execute_code_sandbox` to adjust item statuses."
+        )
     return rendered_directive
 
 
