@@ -2,8 +2,8 @@
 
 REASONING_FORMATS = {
     "Open-Router": {
-        "extra_body": {
-            "include_reasoning": True
+        "reasoning": {
+            "effort": "low"
         }
     },
     "OpenAI": {

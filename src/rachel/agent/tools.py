@@ -199,17 +199,17 @@ def make_tools(state_container: dict[str, Any], sandbox_timeout: float):
     )
 
     def _submit_plan(items: list) -> str:
-        import rachel.config as config
-        if getattr(config, "PLAN_TRIGGER_TYPE", "periodic") == "disabled":
-            return (
-                "Notice: Story planning updates via submit_plan are currently disabled by system policy. "
-                "Plan modifications were not applied. Please proceed with story narration and call end_turn, "
-                "or use update_plan_status() in execute_code_sandbox to adjust existing item statuses."
-            )
-        rpg = state_container.get("rpg_state", {})
-        if isinstance(rpg, dict):
-            rpg["plan"] = items
-        return "Plan submitted successfully."
+        logger.debug("[Tool submit_plan] Tool invoked directly in Progress Mode with items: type=%s, value=%r", type(items).__name__, items)
+        logger.warning("[Tool submit_plan] Disallowed submit_plan call in Progress Mode. Modifications discarded.")
+        return (
+            "--- Tool Execution Error: submit_plan is disabled in Progress Mode ---\n"
+            "ERROR: Calling `submit_plan` is strictly prohibited during Progress Mode!\n"
+            "Story planning updates via `submit_plan` cannot be performed while narrating the story. "
+            "All submitted plan modifications have been DISCARDED.\n"
+            "Notice: You have wasted 1 tool-calling iteration! Do NOT call `submit_plan` again this turn.\n"
+            "Proceed immediately with your story response and call `end_turn` to pass agency back to the player, "
+            "or use `update_plan_status()` inside `execute_code_sandbox` if you only need to adjust item statuses."
+        )
 
     submit_plan = StructuredTool.from_function(
         func=_submit_plan,

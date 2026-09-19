@@ -44,6 +44,13 @@ These are the modified messages that RACHEL submits to the upstream LLM (via Ope
      ```
    This ensures the LLM is fully grounded with mutated variables without needing an extra user prompt. Subsequent iterations continue appending tool interactions to this array before the final assistant narrative is returned to the client.
 
+### C. Streaming Reasoning & Orchestration Signals
+When completions are requested with `stream: true`, RACHEL streams live intermediate progress via OpenAI-compatible `delta: {"reasoning_content": ...}` chunks:
+1. **Model Thinking**: Raw `<think>` blocks or native reasoning tokens from the LLM are extracted and streamed under `reasoning_content`.
+2. **Tool Execution Logs**: Invocations of `execute_code_sandbox` and sandbox outputs are streamed under `reasoning_content`.
+3. **Periodic Background Tasks**: When background orchestration tasks (`plan`, `summary`, `cleanup`) trigger in `pre_action_node`, RACHEL emits milestone status signals (e.g., `[Background Tasks: Story Planning triggered...]`, `[Planning: Checklist updated...]`) under event type `orchestration`, which serialize to `reasoning_content`.
+This gives users continuous visibility during long multi-step background tasks, prevents connection timeouts, and keeps the narrative roleplay response (`content`) 100% clean.
+
 ---
 
 ## 2. Turn Number Resolution

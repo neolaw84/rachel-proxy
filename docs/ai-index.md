@@ -40,6 +40,7 @@ The codebase is organized into modular concerns spanning backend python modules 
 * **[docs/all-about-auth.md](all-about-auth.md)**: Comprehensive guide detailing the three authentication & authorization boundaries (Chat Client, Admin Panel/SSO, LLM Providers/PKCE/BYOK).
 * **[docs/configurations.md](configurations.md)**: Detailed settings reference for `configs.yaml` (state limits, sandbox timeout, LangGraph iterations, and narrative triggers).
 * **[docs/road-to-multi-tenant.md](road-to-multi-tenant.md)**: Architectural roadmap, design decisions, and implementation plan for multi-tenant cloud deployment (GCP Cloud Run + Neon PostgreSQL).
+* **[docs/comparative-study-rachel-vs-companion-ai.md](comparative-study-rachel-vs-companion-ai.md)**: Comparative study analyzing RACHEL's autonomous agentic sandbox vs. pre-/post-scripting paradigms in JanitorAI, AI Dungeon, and Wyvern Chat.
 * **[configs.yaml](../configs.yaml)**: Preserves state limits (`num_states_to_track`), sandbox timeout limits (`timeout_seconds`), LangGraph limits (`max_iterations`), LLM endpoints/models, and narrative trigger/orchestration parameters.
 * **[pyproject.toml](../pyproject.toml)**: Defines package dependency specifications and Hatch building config.
 
