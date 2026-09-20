@@ -210,9 +210,8 @@ def _build_llm_node(
                 "prompt_cache_key": caching_info["prompt_cache_key"],
                 "user": caching_info["user"],
             }
-            if "hidden_state" not in current_rpg_state or not isinstance(current_rpg_state["hidden_state"], dict):
-                current_rpg_state["hidden_state"] = {}
-            current_rpg_state["hidden_state"]["session_info"] = caching_info
+        if isinstance(current_rpg_state.get("hidden_state"), dict):
+            current_rpg_state["hidden_state"].pop("session_info", None)
 
         static_prompt = _GraphDelegate.get_static_system_prompt(
             sandbox_timeout=sandbox_timeout,
@@ -1099,6 +1098,25 @@ def _build_pre_action_node(
                 stream_queue,
                 state_container,
                 "[Background Tasks: All tasks completed.]\n\n",
+            )
+
+        # Include plan and summary (just before the main LLM node) into thinking/reasoning outputs
+        rpg = state_container.get("rpg_state", {})
+        plan = rpg.get("plan", [])
+        summary = rpg.get("summary", "")
+
+        msg_parts = []
+        if plan:
+            plan_str = json.dumps(plan, indent=2, ensure_ascii=False)
+            msg_parts.append(f"[Plan]\n{plan_str}")
+        if summary and isinstance(summary, str) and summary.strip():
+            msg_parts.append(f"[Summary]\n{summary.strip()}")
+
+        if msg_parts:
+            await _emit_orchestration_signal(
+                stream_queue,
+                state_container,
+                "\n\n".join(msg_parts) + "\n\n",
             )
 
         return {"rpg_state": state_container["rpg_state"]}

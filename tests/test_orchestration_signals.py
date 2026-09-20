@@ -271,3 +271,53 @@ async def test_orchestration_logs_included_in_final_reasoning():
         assert "[Planning: Checklist updated (2 items).]" in result["reasoning_content"]
         assert "Deep thought." in result["reasoning_content"]
 
+
+@pytest.mark.asyncio
+async def test_pre_action_node_emits_plan_and_summary_into_reasoning():
+    """Verify that pre_action_node emits plan and summary right before the main LLM node."""
+    stream_queue = asyncio.Queue()
+    plan_data = [{"id": 1, "description": "Meet the guild master", "status": "in-progress"}]
+    summary_data = "The adventurers gathered at the tavern."
+    state_container = {
+        "rpg_state": {
+            "state": {},
+            "hidden_state": {},
+            "summary": summary_data,
+            "plan": plan_data,
+        },
+    }
+
+    with patch("rachel.agent.nodes._build_plan_node", return_value=AsyncMock()), \
+         patch("rachel.agent.nodes._build_summary_node", return_value=AsyncMock()), \
+         patch("rachel.agent.nodes._build_cleanup_node", return_value=AsyncMock()):
+
+        pre_action_node = _build_pre_action_node(
+            api_key="mock-key",
+            state_container=state_container,
+            sandbox_timeout=2.0,
+        )
+
+        config = {
+            "configurable": {
+                "plan_fired": False,
+                "summary_fired": False,
+                "cleanup_fired": False,
+                "stream_queue": stream_queue,
+            }
+        }
+
+        await pre_action_node({"messages": []}, config)
+
+        events = []
+        while not stream_queue.empty():
+            events.append(await stream_queue.get())
+
+        assert len(events) == 1
+        ctype, text = events[0]
+        assert ctype == "orchestration"
+        assert "[Plan]" in text
+        assert "Meet the guild master" in text
+        assert "[Summary]" in text
+        assert "The adventurers gathered at the tavern." in text
+
+

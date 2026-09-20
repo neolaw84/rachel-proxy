@@ -107,14 +107,9 @@ async def run_agent(
     """Run the LangGraph agent for one proxy turn."""
     if turn_number is None:
         turn_number = sum(1 for m in messages if m.get("role") == "assistant") + 1
-    rpg_dict = dict(before_state) if isinstance(before_state, dict) else {}
-    if not all(k in rpg_dict for k in ("state", "hidden_state", "summary", "plan")):
-        rpg_dict = {
-            "state": rpg_dict,
-            "hidden_state": {},
-            "summary": "",
-            "plan": [],
-        }
+    from rachel.core.state import _migrate_state
+    rpg_dict = _migrate_state(before_state if isinstance(before_state, dict) else {})
+
     state_container: dict[str, Any] = {
         "rpg_state": rpg_dict,
         "current_turn": turn_number,
@@ -125,11 +120,6 @@ async def run_agent(
     }
     if session_id:
         state_container["session_id"] = session_id
-        from rachel.core.session import get_session_caching_info
-        caching_info = get_session_caching_info(session_id)
-        if "hidden_state" not in state_container["rpg_state"] or not isinstance(state_container["rpg_state"]["hidden_state"], dict):
-            state_container["rpg_state"]["hidden_state"] = {}
-        state_container["rpg_state"]["hidden_state"]["session_info"] = caching_info
 
     compiled = build_graph(
         api_key=api_key,
