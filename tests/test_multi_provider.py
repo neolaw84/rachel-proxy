@@ -386,7 +386,7 @@ async def test_call_llm_direct_session_caching_parameters():
 
 @pytest.mark.asyncio
 async def test_run_agent_session_info_persistence():
-    from unittest.mock import patch
+    from unittest.mock import patch, MagicMock
     from rachel.agent.graph import run_agent
 
     stream_queue = asyncio.Queue()
@@ -412,11 +412,13 @@ async def test_run_agent_session_info_persistence():
         def json(self):
             return {"choices": [{"message": {"content": "ok"}}]}
 
-    with patch("httpx.AsyncClient.stream", side_effect=lambda *a, **kw: DummyStreamResponse()), \
+    stream_mock = MagicMock(side_effect=lambda *a, **kw: DummyStreamResponse())
+
+    with patch("httpx.AsyncClient.stream", stream_mock), \
          patch("httpx.AsyncClient.post", return_value=MockPostResponse()):
         res = await run_agent(
             messages=[{"role": "user", "content": "hello"}],
-            before_state={},
+            before_state={"hidden_state": {"session_info": {"legacy": True}, "quest": "active"}},
             api_key="test_key",
             base_url="https://api.openrouter.ai/v1/chat/completions",
             model="gpt-4o",
@@ -425,9 +427,18 @@ async def test_run_agent_session_info_persistence():
         )
 
     assert res["content"] == "agent response"
-    session_info = res["after_state"]["hidden_state"]["session_info"]
-    assert session_info["session_id"] == "persistent-session-42"
-    assert session_info["prompt_cache_key"] == "persistent-session-42"
-    assert session_info["user"] == "user-persistent-session-42"
+    # Ensure session_info is NOT stored in hidden_state and legacy session_info is stripped
+    assert "session_info" not in res["after_state"]["hidden_state"]
+    assert res["after_state"]["hidden_state"]["quest"] == "active"
+
+    # Verify session parameters were passed to the provider API
+    assert stream_mock.called
+    call_kwargs = stream_mock.call_args[1]
+    headers = call_kwargs.get("headers", {})
+    json_payload = call_kwargs.get("json", {})
+    assert headers.get("X-Session-Id") == "persistent-session-42"
+    assert json_payload.get("session_id") == "persistent-session-42"
+    assert json_payload.get("prompt_cache_key") == "persistent-session-42"
+    assert json_payload.get("user") == "user-persistent-session-42"
 
 
