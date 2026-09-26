@@ -213,8 +213,12 @@ def _build_llm_node(
         if isinstance(current_rpg_state.get("hidden_state"), dict):
             current_rpg_state["hidden_state"].pop("session_info", None)
 
+        from rachel.core.model_utils import is_gemini_model
+        include_end_turn = not is_gemini_model(model, base_url)
+
         static_prompt = _GraphDelegate.get_static_system_prompt(
             sandbox_timeout=sandbox_timeout,
+            include_end_turn=include_end_turn,
         )
 
         dynamic_directive = _GraphDelegate.get_dynamic_turn_directive(
@@ -224,6 +228,7 @@ def _build_llm_node(
             rem_iterations=rem_iterations,
             messages=state["messages"],
             turn_number=turn_number,
+            include_end_turn=include_end_turn,
         )
 
         openai_msgs = convert_to_openai_messages(
@@ -275,7 +280,7 @@ def _build_llm_node(
 
         # 2. Call OpenRouter
         engine = get_sandbox_engine()
-        all_tools = get_all_tools_schema(engine.name)
+        all_tools = get_all_tools_schema(engine.name, include_end_turn=include_end_turn)
 
         content, reasoning, tcs = await _GraphDelegate.call_openrouter_streaming(
             api_key=api_key,
@@ -1040,14 +1045,19 @@ def _build_tool_node(tools: list):
 
     return tool_node
 
-def _should_continue(max_iterations: int):
+def _should_continue(max_iterations: int, include_end_turn: bool = True):
     """Return the conditional edge function."""
     def _edge(state: AgentState) -> str:
         last = state["messages"][-1]
         if not isinstance(last, AIMessage):
             return "llm"
         tool_calls = getattr(last, "tool_calls", None) or []
-        has_end_turn = any(tc.get("name") == "end_turn" for tc in tool_calls)
+        last_content = str(getattr(last, "content", "") or "").strip()
+        has_end_turn = (
+            include_end_turn
+            and any(tc.get("name") == "end_turn" for tc in tool_calls)
+            and bool(last_content)
+        )
         has_tool_calls = bool(tool_calls)
         over_limit = state["iteration_count"] >= max_iterations
         if has_end_turn or over_limit or not has_tool_calls:

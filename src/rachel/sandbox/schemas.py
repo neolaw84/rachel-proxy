@@ -119,19 +119,25 @@ def get_execute_code_sandbox_schema(engine_name: str = "v8") -> dict[str, Any]:
         },
     }
 
-def get_all_tools_schema(engine_name: str = "v8") -> list[dict[str, Any]]:
-    """Return the unified static array of all 5 tool schemas for prompt prefix alignment."""
-    return [
-        get_execute_code_sandbox_schema(engine_name),
-        END_TURN_TOOL,
+def get_all_tools_schema(engine_name: str = "v8", include_end_turn: bool = True) -> list[dict[str, Any]]:
+    """Return the unified static array of tool schemas for prompt prefix alignment.
+    
+    If include_end_turn is False (e.g. for Gemini models which treat tool calls and text as mutually exclusive),
+    end_turn is omitted from the tool definitions.
+    """
+    tools = [get_execute_code_sandbox_schema(engine_name)]
+    if include_end_turn:
+        tools.append(END_TURN_TOOL)
+    tools.extend([
         SUBMIT_PLAN_TOOL,
         SUBMIT_SUMMARY_TOOL,
         SUBMIT_CLEANUP_TOOL,
-    ]
+    ])
+    return tools
 
-def get_tools_schema(engine_name: str = "v8") -> list[dict[str, Any]]:
+def get_tools_schema(engine_name: str = "v8", include_end_turn: bool = True) -> list[dict[str, Any]]:
     """Return the master tool schema array (alias for get_all_tools_schema)."""
-    return get_all_tools_schema(engine_name)
+    return get_all_tools_schema(engine_name, include_end_turn=include_end_turn)
 
 TOOLS_SCHEMA = get_tools_schema("v8")
 
