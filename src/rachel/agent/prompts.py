@@ -6,6 +6,9 @@ from typing import Any, Sequence
 from langchain_core.messages import BaseMessage, AIMessage, SystemMessage
 from rachel.agent.prompt_constants import (
     PROGRESS_STORY_TASK,
+    PROGRESS_STORY_TASK_NO_END_TURN,
+    PROGRESS_AGENCY_INSTRUCTIONS_END_TURN,
+    PROGRESS_AGENCY_INSTRUCTIONS_DIRECT,
     STATE_SECTION_TEMPLATE,
     SANDBOX_INFO_V8,
     STATE_CONSTRAINTS_INFO_TEMPLATE,
@@ -41,7 +44,12 @@ class PromptBuilder:
         stw = self._summary_target_words if self._summary_target_words is not None else config.SUMMARY_TARGET_WORDS
         return msl, mw, md, stw
 
-    def get_static_system_prompt(self, sandbox_timeout: float = 2.0, engine_name: str = "v8") -> str:
+    def get_static_system_prompt(
+        self,
+        sandbox_timeout: float = 2.0,
+        engine_name: str = "v8",
+        include_end_turn: bool = True,
+    ) -> str:
         msl, mw, md, stw = self._resolve_config()
         state_constraints_info = STATE_CONSTRAINTS_INFO_TEMPLATE.format(
             max_string_length=msl,
@@ -49,12 +57,18 @@ class PromptBuilder:
             max_depth=md,
         )
         lang = "JavaScript" if engine_name == "v8" else "Python"
+        agency_instructions = (
+            PROGRESS_AGENCY_INSTRUCTIONS_END_TURN
+            if include_end_turn
+            else PROGRESS_AGENCY_INSTRUCTIONS_DIRECT
+        )
         return STATIC_SYSTEM_INSTRUCTION_TEMPLATE.format(
             target_words=stw,
             lang=lang,
             sandbox_info=SANDBOX_INFO_V8,
             state_constraints_info=state_constraints_info,
             sandbox_timeout=sandbox_timeout,
+            progress_agency_instructions=agency_instructions,
         )
 
 
@@ -129,6 +143,7 @@ def get_static_system_prompt(
     max_width: int | None = None,
     max_depth: int | None = None,
     engine_name: str = "v8",
+    include_end_turn: bool = True,
 ) -> str:
     """Return the invariant static system instruction prompt for Message 0."""
     builder = PromptBuilder(
@@ -136,7 +151,11 @@ def get_static_system_prompt(
         max_width=max_width,
         max_depth=max_depth,
     )
-    return builder.get_static_system_prompt(sandbox_timeout=sandbox_timeout, engine_name=engine_name)
+    return builder.get_static_system_prompt(
+        sandbox_timeout=sandbox_timeout,
+        engine_name=engine_name,
+        include_end_turn=include_end_turn,
+    )
 
 
 
@@ -147,12 +166,14 @@ def get_dynamic_turn_directive(
     rem_iterations: int,
     messages: Sequence[BaseMessage] = (),
     turn_number: int = 1,
+    include_end_turn: bool = True,
 ) -> str:
     """Return the dynamic turn directive block appended to the last user message."""
     # 1. Build tasks list
-    tasks = [PROGRESS_STORY_TASK]
+    task_desc = PROGRESS_STORY_TASK if include_end_turn else PROGRESS_STORY_TASK_NO_END_TURN
+    tasks = [task_desc]
     total_tasks = len(tasks)
-    tasks_formatted = [f"- Task 1 of 1: {PROGRESS_STORY_TASK}"]
+    tasks_formatted = [f"- Task 1 of 1: {task_desc}"]
     tasks_block = "\n".join(tasks_formatted)
     task_word = "task"
 

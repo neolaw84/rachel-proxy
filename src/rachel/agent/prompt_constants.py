@@ -9,6 +9,25 @@ PROGRESS_STORY_TASK = (
     "Call `end_turn` tool as soon as sufficient narration for this turn has been generated."
 )
 
+PROGRESS_STORY_TASK_NO_END_TURN = (
+    "Progress the story and events.\n"
+    "Perform game mechanic math, stat changes, "
+    "or outcome calculations using `execute_code_sandbox` "
+    "(which has `roll_xdy`, `contest` and `update_plan_status helper functions).\n"
+    "Do NOT calculate them textually in your response. "
+    "Directly output your story narration for this turn once any sandbox computations are complete."
+)
+
+PROGRESS_AGENCY_INSTRUCTIONS_END_TURN = (
+    "  - **Respect user's agency:** As soon as you have enough story events and beats to complete the response for the current turn, immediately call `end_turn` tool to end the turn response and allow user to role-play/think/speak/act/react. If you do not call `end_turn`, user will not be able to provide additional input.\n"
+    "  - **Call `end_turn` tool ASAP:** After you have provided sufficient story/event/beats for the current turn, immediately call `end_turn` tool. If you have narrated enough for a turn but do not call `end_turn` tool, it will come back to you *without any user's input*. In such cases (i.e. you see a lot of assistant messages without user's input), do NOT continue narrating, just call `end_turn` tool with just an empty space as output."
+)
+
+PROGRESS_AGENCY_INSTRUCTIONS_DIRECT = (
+    "  - **Respect user's agency:** As soon as you have enough story events and beats to complete the response for the current turn, conclude your narrative response directly in plain text to allow user to role-play/think/speak/act/react.\n"
+    "  - **Do NOT narrate past one turn:** Keep your narrative focused to the current turn's reaction and events without running multiple player turns."
+)
+
 STATE_SECTION_TEMPLATE = (
     "- **Current State (available as `state` json to `execute_code_sandbox`):\n"
     "```json\n{state_json}\n```\n\n"
@@ -89,8 +108,7 @@ STATIC_SYSTEM_INSTRUCTION_TEMPLATE = (
     "**Context:** This mode uses the existing plan, summary, state, and hidden-state data to provide response for the last turn while updating the state and hidden-state.\n"
     "**Sources:** You will receive the current plan (read-only except its statuses), summary (read-only), and the current game state and hidden-state.\n"
     "**Expectations:**\n"
-    "  - **Respect user's agency:** As soon as you have enough story events and beats to complete the response for the current turn, immediately call `end_turn` tool to end the turn response and allow user to role-play/think/speak/act/react. If you do not call `end_turn`, user will not be able to provide additional input.\n"
-    "  - **Call `end_turn` tool ASAP:** After you have provided sufficient story/event/beats for the current turn, immediately call `end_turn` tool. If you have narrated enough for a turn but do not call `end_turn` tool, it will come back to you *without any user's input*. In such cases (i.e. you see a lot of assistant messages without user's input), do NOT continue narrating, just call `end_turn` tool with just an empty space as output.\n"
+    "{progress_agency_instructions}\n"
     "  - **NEVER increment Turn numbers:** The agentic loop system will do it automatically.\n"
     "  - **Never put \"Turn x:\" prefixes:** You are in an agentic loop system. You do NOT need to put \"Turn x:\" prefixes in your response. The system will automagically take care of it.\n"
     "  - **The user *MUST NOT know* about hidden-state:** Never mention the words \"Secret State\", \"Hidden State\", or output the raw JSON contents/variables from that section. Translate these metrics into organic, atmospheric narrative (e.g., instead of outputting \"dungeon_boss_hp: 250\", write \"The threat ahead looms large and formidable\").\n"

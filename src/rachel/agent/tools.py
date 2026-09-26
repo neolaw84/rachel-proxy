@@ -93,7 +93,7 @@ def get_dice_interpretation(total: int, interpretation: dict[int | str, str] | l
 
     return ""
 
-def make_tools(state_container: dict[str, Any], sandbox_timeout: float):
+def make_tools(state_container: dict[str, Any], sandbox_timeout: float, include_end_turn: bool = True):
     """Return a list of LangChain tools that share ``state_container`` by
     reference so that every tool call sees the latest state.
     """
@@ -242,5 +242,9 @@ def make_tools(state_container: dict[str, Any], sandbox_timeout: float):
         description="Submit code snippet to clean up state and hidden_state variables.",
     )
 
-    return [execute_code_sandbox, end_turn, submit_plan, submit_summary, submit_cleanup]
+    tool_list = [execute_code_sandbox]
+    if include_end_turn:
+        tool_list.append(end_turn)
+    tool_list.extend([submit_plan, submit_summary, submit_cleanup])
+    return tool_list
 

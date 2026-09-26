@@ -59,7 +59,10 @@ def build_graph(
     fallback_orchestration_model: str | None = None,
 ):
     """Compile and return the LangGraph agent graph."""
-    tools = make_tools(state_container, sandbox_timeout)
+    from rachel.core.model_utils import is_gemini_model
+    include_end_turn = not is_gemini_model(model, base_url)
+
+    tools = make_tools(state_container, sandbox_timeout, include_end_turn=include_end_turn)
 
     graph = StateGraph(AgentState)  # type: ignore[arg-type]
     graph.add_node("pre_action", _build_pre_action_node(
@@ -76,7 +79,7 @@ def build_graph(
 
     graph.set_entry_point("pre_action")
     graph.add_edge("pre_action", "llm")
-    graph.add_conditional_edges("llm", _should_continue(max_iterations), {
+    graph.add_conditional_edges("llm", _should_continue(max_iterations, include_end_turn=include_end_turn), {
         "tools": "tools",
         "route_end": "route_end",
     })
