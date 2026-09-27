@@ -529,6 +529,7 @@ def _build_plan_node(
             PLAN_BASE_URL,
             PLAN_TEMPERATURE,
             PLAN_MAX_RETRIES,
+            PLAN_INTERVAL_TURNS,
         )
 
         target_model = model or fallback_model or PLAN_MODEL
@@ -569,6 +570,7 @@ def _build_plan_node(
             summary_up_to_turn=last_summary_turn,
             start_turn=start_plan_turn,
             end_turn=end_plan_turn,
+            interval_turns=PLAN_INTERVAL_TURNS,
         )
 
         from rachel.config import PLAN_INITIAL_NUM_MSGS_TO_INCLUDE
@@ -593,6 +595,7 @@ def _build_plan_node(
             summary_up_to_turn=last_summary_turn,
             start_turn=start_plan_turn,
             end_turn=end_plan_turn,
+            interval_turns=PLAN_INTERVAL_TURNS,
         )
 
 

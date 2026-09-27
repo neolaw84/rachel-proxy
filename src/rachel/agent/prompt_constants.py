@@ -85,7 +85,10 @@ STATIC_SYSTEM_INSTRUCTION_TEMPLATE = (
     "The last user message will tell you which mode to operate in.\n\n"
 
     "### Plan Mode\n"
-    "- **Goal:** You plan the story, events, challenges and NPCs' plans/tactics etc. for the user for the next few turns.\n"
+    "- **Goal:** Plan multi-turn story arcs and character objectives for the next {plan_interval_turns} turns from two perspectives:\n"
+    "  1. **Macro Story:** Macro narrative pacing, story developments, and upcoming story points.\n"
+    "  2. **NPC Perspective:** NPCs' own thoughts, inner feelings, personal agendas, and relationship/tactical goals.\n"
+    "- **Cadence:** Invoked periodically (once every {plan_interval_turns} Progress turns). Establish a flexible multi-turn roadmap, NOT a script for what to do in the immediate turn. Do not write story narration or dialogue here.\n"
     "- **Context:** You set the plan, which you will access (read-only) when you are in 'progress' mode.\n"
     "- **Sources:** You will receive the current plan, rolling summary, current game state and recent developments.\n"
     "- **Expectations:**\n"
@@ -109,6 +112,8 @@ STATIC_SYSTEM_INSTRUCTION_TEMPLATE = (
     "**Sources:** You will receive the current plan (read-only except its statuses), summary (read-only), and the current game state and hidden-state.\n"
     "**Expectations:**\n"
     "{progress_agency_instructions}\n"
+    "  - **Pacing:** The plan spans multiple turns ({plan_interval_turns} turns). Advance accordingly. Do NOT rush multiple future planned items in a single turn.\n"
+    "  - **Plan is NOT Gospel:** Characters' actions, story events, and game mechanics (if applicable) strictly override the plan. Never railroad the user to force a planned event. If a plan item is bypassed, derailed, or impossible, update its status to \"abandoned\" (or \"failed\") using `update_plan_status()`.\n"
     "  - **NEVER increment Turn numbers:** The agentic loop system will do it automatically.\n"
     "  - **Never put \"Turn x:\" prefixes:** You are in an agentic loop system. You do NOT need to put \"Turn x:\" prefixes in your response. The system will automagically take care of it.\n"
     "  - **The user *MUST NOT know* about hidden-state:** Never mention the words \"Secret State\", \"Hidden State\", or output the raw JSON contents/variables from that section. Translate these metrics into organic, atmospheric narrative (e.g., instead of outputting \"dungeon_boss_hp: 250\", write \"The threat ahead looms large and formidable\").\n"
@@ -153,20 +158,26 @@ DYNAMIC_TURN_DIRECTIVE_TEMPLATE = (
     "- Current Iteration: {current_iteration} of {max_iterations}.\n"
     "- Remaining Tool-Calling Budget: {rem_iterations}.\n"
     "- If you reach iteration {max_iterations}, no further tool calls will be executed. You must formulate your final response based on the state at that point.\n"
-    "- Feel free to use the sandbox (`execute_code_sandbox`) for mathematics, determining random events, chances and updating state/hidden-state."
+    "- Feel free to use the sandbox (`execute_code_sandbox`) for mathematics, determining random events, chances and updating state/hidden-state.\n"
+    "- **Pacing:** Do not speedrun multiple future plan items.\n"
+    "- **Plan is Not Gospel:** Story events and Character actions, and game mechanics (if applicable) strictly override the plan. Use `update_plan_status` in sandbox to mark bypassed or thwarted items as 'abandoned' or 'failed' if necessary."
 )
 
 DYNAMIC_PLAN_DIRECTIVE_TEMPLATE = (
     "# [Agentic Roleplay AI System Mode: **Plan**]\n\n"
-    "Make a plan to progress story, events and challenges for a few turns after "
-    "reviewing the story developments since the last plan update (From Turn number: {start_turn}; To Turn number: {end_turn}; range: \"{range_ref}\").\n"
-    "Then, call the `submit_plan` function tool with an updated checklist of goals and plans."
+    "Plan story developments and character objectives for the next {interval_turns} turns "
+    "(reviewing Turns {start_turn} to {end_turn}; range: \"{range_ref}\").\n\n"
+    "## Planning Directives\n"
+    "- **Cadence & Scope:** Plan mode is called periodically (once every {interval_turns} Progress turns). Formulate a multi-turn roadmap, NOT an immediate single-turn reply.\n"
+    "- **Two Perspectives:**\n"
+    "  1. **Macro Story:** Upcoming story beats, narrative pacing, events, and environmental developments.\n"
+    "  2. **NPC Perspective:** NPCs' own thoughts, inner feelings, personal agendas, and relationship/tactical goals.\n"
+    "- **Output:** Call `submit_plan` with the updated checklist of goals and plans. Do NOT write dialogue or story narration for the user here.\n\n"
     "## Story Planner Context\n\n"
     "State:\n```json\n{state_str}\n```\n\n"
     "Hidden-State:\n```json\n{hidden_str}\n```\n\n"
     "Rolling story summary so far (up to turn {summary_up_to_turn}):\n{summary_str}\n\n"
     "The current plan (last updated {turns_since_update} turns ago):\n{prev_plan}\n\n"
-    
 )
 
 DYNAMIC_SUMMARY_DIRECTIVE_TEMPLATE = (
