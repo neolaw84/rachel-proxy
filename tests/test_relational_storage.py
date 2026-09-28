@@ -49,7 +49,7 @@ def test_relational_session_storage_crud(sqlite_engine):
 
     # Initial get_before_state for first turn should return empty migrated state
     state_0 = storage.get_before_state(None)
-    assert state_0 == {"state": {}, "plan": [], "summary": "", "hidden_state": {}}
+    assert state_0 == {"state": {}, "plan": [], "summary": "", "hidden_state": {}, "notes": []}
 
     # Save turn 1
     tk1 = "a" * 24

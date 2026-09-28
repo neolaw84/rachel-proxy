@@ -28,6 +28,7 @@ def test_first_turn_returns_empty_state(tmp_store):
         "plan": [],
         "summary": "",
         "hidden_state": {},
+        "notes": [],
     }
 
 
@@ -41,6 +42,7 @@ def test_save_and_reload(tmp_path):
         "plan": [],
         "summary": "",
         "hidden_state": {},
+        "notes": [],
     }
 
 
@@ -60,6 +62,7 @@ def test_lru_eviction(tmp_path):
         "plan": [],
         "summary": "",
         "hidden_state": {},
+        "notes": [],
     }
     # Adding a 4th should evict k2 (LRU), not k1 (accessed) or k3 (newer)
     store.save_turn("k4", {}, {"a": 4})
@@ -70,18 +73,21 @@ def test_lru_eviction(tmp_path):
         "plan": [],
         "summary": "",
         "hidden_state": {},
+        "notes": [],
     }
     assert store.get_before_state("k3") == {
         "state": {"a": 3},
         "plan": [],
         "summary": "",
         "hidden_state": {},
+        "notes": [],
     }
     assert store.get_before_state("k4") == {
         "state": {"a": 4},
         "plan": [],
         "summary": "",
         "hidden_state": {},
+        "notes": [],
     }
 
 
@@ -95,6 +101,7 @@ def test_reset_clears_state(tmp_path):
         "plan": [],
         "summary": "",
         "hidden_state": {},
+        "notes": [],
     }
 
 

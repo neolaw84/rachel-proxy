@@ -22,13 +22,15 @@ def test_state_migration():
     assert migrated["plan"] == []
     assert migrated["summary"] == ""
     assert migrated["hidden_state"] == {}
+    assert migrated["notes"] == []
 
     # Test migration of already new format (no-op)
     new_state = {
         "state": {"gold": 200},
         "plan": ["meet Bob"],
         "summary": "Met Bob.",
-        "hidden_state": {"poison": 3}
+        "hidden_state": {"poison": 3},
+        "notes": [],
     }
     migrated_new = _migrate_state(new_state)
     assert migrated_new == new_state
@@ -39,6 +41,7 @@ def test_state_migration():
         "plan": [],
         "summary": "",
         "hidden_state": {},
+        "notes": [],
     }
 
 

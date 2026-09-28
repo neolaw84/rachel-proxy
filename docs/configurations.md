@@ -17,6 +17,13 @@ These settings control how the proxy stores the memory, inventory, and stats for
 * **Default:** `"data/states"`
 * **What it does:** The folder on the server where campaign state JSON files are saved. Each session gets its own file. You rarely need to change this.
 
+### `notes` (Working Memory to Future Self)
+Guardrails for notes emitted via the `append_to_notes()` sandbox helper:
+* `notes.max_calls_per_turn` (Integer, default `3`): Maximum times the LLM can call `append_to_notes` in a single turn.
+* `notes.max_chars_per_note` (Integer, default `300`): Maximum characters per note. Longer notes are automatically truncated so execution never crashes.
+* `notes.max_chars_per_turn` (Integer, default `500`): Combined character limit for all notes appended in a single turn.
+* `notes.max_total_notes` (Integer, default `8`): Maximum number of active notes in the buffer. Uses FIFO (oldest note drops off when full). Notes are flushed whenever Plan mode successfully updates the roadmap.
+
 ---
 
 ## 🧪 Section 2: Sandbox Executions (`sandbox`)
@@ -65,9 +72,21 @@ These settings define the primary AI model acting as the Game Master (GM) in you
 ---
 
 ## 🎭 Section 5: Story Pacing & Memory updates (`orchestration`)
-These settings control the automatic narrative planning and rolling summaries that keep the plot consistent and prevent the GM from forgetting older events. Planning and summarization are executed as independent nodes within the story graph, each configured with its own triggers and dedicated LLM parameters.
+These settings control the automatic narrative planning, rolling summaries, and context management that keep the plot consistent and prevent the GM from forgetting older events.
 
-### 📋 1. Story Planning Configuration (`orchestration.plan`)
+### 🚀 1. Story Progression & History Compaction (`orchestration.progress`)
+Settings for the main narrative generation node (Progress mode):
+
+* **`summary_replace_actual_history`**: Boolean (`true`/`false`, default `true`).
+  * When `false`, the entire chat history is forwarded on every LLM call.
+  * When `true`, outgoing messages sent to the LLM are mirrored/compacted:
+    - Message 0 (system character card) is always preserved at index 0.
+    - The first $k$ messages (defined by `initial_num_msgs_to_include`, default `4`) are always preserved.
+    - All messages after the latest summary (turns > `last_summary_turn`) up to the current turn's action and tool rounds are always preserved.
+    - Historical messages between message $k$ and the latest summary are omitted from the outgoing LLM payload, saving significant context tokens while retaining the rolling summary in the dynamic directive.
+* **`initial_num_msgs_to_include`**: Integer (default `4`). Number of initial non-system messages (after Message 0) preserved at the prefix of the outgoing messages stream.
+
+### 📋 2. Story Planning Configuration (`orchestration.plan`)
 Settings for the narrative planner node that updates your story roadmap checklist:
 
 * **`trigger_type`**: Text (`"periodic"`, `"probabilistic"`, or `"disabled"`). How the planner decides it is time to update.

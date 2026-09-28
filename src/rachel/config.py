@@ -48,6 +48,13 @@ NUM_STATES_TO_TRACK: int = int(_state_cfg.get("num_states_to_track", 32))
 MAX_STRING_LENGTH: int = int(_state_cfg.get("max_string_length", 80))
 MAX_DEPTH: int = int(_state_cfg.get("max_depth", 4))
 MAX_WIDTH: int = int(_state_cfg.get("max_width", 32))
+
+_notes_cfg = _state_cfg.get("notes", {})
+NOTES_MAX_CALLS_PER_TURN: int = int(_notes_cfg.get("max_calls_per_turn", 3))
+NOTES_MAX_CHARS_PER_NOTE: int = int(_notes_cfg.get("max_chars_per_note", 300))
+NOTES_MAX_CHARS_PER_TURN: int = int(_notes_cfg.get("max_chars_per_turn", 500))
+NOTES_MAX_TOTAL_NOTES: int = int(_notes_cfg.get("max_total_notes", 8))
+
 SANDBOX_TIMEOUT: float = float(_sandbox_cfg.get("timeout_seconds", 8.0))
 MAX_ITERATIONS: int = int(_langgraph_cfg.get("max_iterations", 5))
 
@@ -55,6 +62,18 @@ MAX_ITERATIONS: int = int(_langgraph_cfg.get("max_iterations", 5))
 PLAN_OFFSET: int = int(_orchestration_cfg.get("plan_offset", 0))
 PLAN_SUMMARY_GAP: int = int(_orchestration_cfg.get("plan_summary_gap", 1))
 PLAN_CLEANUP_GAP: int = int(_orchestration_cfg.get("plan_cleanup_gap", 2))
+
+_progress_cfg = _orchestration_cfg.get("progress", {})
+PROGRESS_SUMMARY_REPLACE_ACTUAL_HISTORY: bool = bool(
+    _progress_cfg.get(
+        "summary_replace_actual_history",
+        _orchestration_cfg.get("summary_replace_actual_history", True)
+    )
+)
+PROGRESS_INITIAL_NUM_MSGS_TO_INCLUDE: int = int(
+    _progress_cfg.get("initial_num_msgs_to_include", 4)
+)
+SUMMARY_REPLACE_ACTUAL_HISTORY: bool = PROGRESS_SUMMARY_REPLACE_ACTUAL_HISTORY
 
 _plan_cfg = _orchestration_cfg.get("plan", {})
 PLAN_TRIGGER_TYPE: str = _plan_cfg.get("trigger_type", "periodic")

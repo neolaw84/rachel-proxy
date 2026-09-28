@@ -30,11 +30,13 @@ class PromptBuilder:
         max_width: int | None = None,
         max_depth: int | None = None,
         summary_target_words: int | None = None,
+        plan_interval_turns: int | None = None,
     ):
         self._max_string_length = max_string_length
         self._max_width = max_width
         self._max_depth = max_depth
         self._summary_target_words = summary_target_words
+        self._plan_interval_turns = plan_interval_turns
 
     def _resolve_config(self):
         import rachel.config as config
@@ -42,7 +44,8 @@ class PromptBuilder:
         mw = self._max_width if self._max_width is not None else config.MAX_WIDTH
         md = self._max_depth if self._max_depth is not None else config.MAX_DEPTH
         stw = self._summary_target_words if self._summary_target_words is not None else config.SUMMARY_TARGET_WORDS
-        return msl, mw, md, stw
+        pit = self._plan_interval_turns if self._plan_interval_turns is not None else getattr(config, "PLAN_INTERVAL_TURNS", 10)
+        return msl, mw, md, stw, pit
 
     def get_static_system_prompt(
         self,
@@ -50,7 +53,7 @@ class PromptBuilder:
         engine_name: str = "v8",
         include_end_turn: bool = True,
     ) -> str:
-        msl, mw, md, stw = self._resolve_config()
+        msl, mw, md, stw, pit = self._resolve_config()
         state_constraints_info = STATE_CONSTRAINTS_INFO_TEMPLATE.format(
             max_string_length=msl,
             max_width=mw,
@@ -64,6 +67,7 @@ class PromptBuilder:
         )
         return STATIC_SYSTEM_INSTRUCTION_TEMPLATE.format(
             target_words=stw,
+            plan_interval_turns=pit,
             lang=lang,
             sandbox_info=SANDBOX_INFO_V8,
             state_constraints_info=state_constraints_info,
@@ -144,12 +148,14 @@ def get_static_system_prompt(
     max_depth: int | None = None,
     engine_name: str = "v8",
     include_end_turn: bool = True,
+    plan_interval_turns: int | None = None,
 ) -> str:
     """Return the invariant static system instruction prompt for Message 0."""
     builder = PromptBuilder(
         max_string_length=max_string_length,
         max_width=max_width,
         max_depth=max_depth,
+        plan_interval_turns=plan_interval_turns,
     )
     return builder.get_static_system_prompt(
         sandbox_timeout=sandbox_timeout,
@@ -157,6 +163,20 @@ def get_static_system_prompt(
         include_end_turn=include_end_turn,
     )
 
+
+
+def _format_notes_for_prompt(notes: list | None) -> str:
+    if not notes:
+        return "[No active notes]"
+    notes_lines = []
+    for n in notes:
+        if isinstance(n, dict):
+            t = n.get("turn", "?")
+            txt = n.get("text", "") or n.get("note", "")
+            notes_lines.append(f"- (Turn {t}): {txt}")
+        elif isinstance(n, str) and n.strip():
+            notes_lines.append(f"- {n.strip()}")
+    return "\n".join(notes_lines) if notes_lines else "[No active notes]"
 
 
 def get_dynamic_turn_directive(
@@ -179,11 +199,13 @@ def get_dynamic_turn_directive(
 
     # 2. Format state sections
     rpg_dict = rpg_state if isinstance(rpg_state, dict) else {}
+    notes_formatted = _format_notes_for_prompt(rpg_dict.get("notes", []))
     state_section = STATE_SECTION_TEMPLATE.format(
         state_json=json.dumps(rpg_dict.get("state", {}), indent=2, ensure_ascii=False),
         hidden_state_json=json.dumps(rpg_dict.get("hidden_state", {}), indent=2, ensure_ascii=False),
         summary=rpg_dict.get("summary") or "[No events summarized yet]",
         plan_json=json.dumps(rpg_dict.get("plan", []), indent=2, ensure_ascii=False),
+        notes_section=notes_formatted,
     )
 
 
@@ -241,19 +263,25 @@ def get_plan_prompt(
     summary_up_to_turn: int | str = 0,
     start_turn: int | str = 1,
     end_turn: int | str = 1,
+    interval_turns: int | None = None,
+    notes: list[dict] | None = None,
 ) -> str:
     """Return the prompt for the story planner."""
+    import rachel.config as config
     from rachel.agent.prompt_constants import DYNAMIC_PLAN_DIRECTIVE_TEMPLATE
+    k_turns = interval_turns if interval_turns is not None else getattr(config, "PLAN_INTERVAL_TURNS", 10)
     return DYNAMIC_PLAN_DIRECTIVE_TEMPLATE.format(
         state_str=json.dumps(state, indent=2, ensure_ascii=False) if state is not None else "{}",
         hidden_str=json.dumps(hidden_state, indent=2, ensure_ascii=False) if hidden_state is not None else "{}",
         summary_str=summary or "[No events summarized yet]",
         summary_up_to_turn=summary_up_to_turn,
+        notes_str=_format_notes_for_prompt(notes),
         prev_plan=json.dumps(prev_plan, indent=2, ensure_ascii=False) if prev_plan is not None else "[]",
         turns_since_update=turns_since_update,
         range_ref=range_ref,
         start_turn=start_turn,
         end_turn=end_turn,
+        interval_turns=k_turns,
     )
 
 
@@ -290,23 +318,29 @@ def get_dynamic_plan_directive(
     summary_up_to_turn: int | str = 0,
     start_turn: int | str = 1,
     end_turn: int | str = 1,
+    interval_turns: int | None = None,
+    notes: list[dict] | None = None,
 ) -> str:
     """Return dynamic directive for plan node."""
+    import rachel.config as config
     from rachel.agent.prompt_constants import DYNAMIC_PLAN_DIRECTIVE_TEMPLATE
     state_str = json.dumps(state, indent=2, ensure_ascii=False) if state is not None else "{}"
     hidden_str = json.dumps(hidden_state, indent=2, ensure_ascii=False) if hidden_state is not None else "{}"
     prev_plan_str = json.dumps(prev_plan, indent=2, ensure_ascii=False) if prev_plan is not None else "[]"
     summary_str = summary or "[No events summarized yet]"
+    k_turns = interval_turns if interval_turns is not None else getattr(config, "PLAN_INTERVAL_TURNS", 10)
     return DYNAMIC_PLAN_DIRECTIVE_TEMPLATE.format(
         state_str=state_str,
         hidden_str=hidden_str,
         summary_str=summary_str,
         summary_up_to_turn=summary_up_to_turn,
+        notes_str=_format_notes_for_prompt(notes),
         prev_plan=prev_plan_str,
         turns_since_update=turns_since_update,
         range_ref=range_ref,
         start_turn=start_turn,
         end_turn=end_turn,
+        interval_turns=k_turns,
     )
 
 

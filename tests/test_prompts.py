@@ -15,6 +15,7 @@ def test_get_summary_prompt():
     assert "hp" in prompt
 
 def test_get_plan_prompt():
+    import rachel.config as config
     prev_plan = [{"id": 1, "description": "Goal 1", "status": "to-do", "remark": ""}]
     range_ref = "Let's go. ... Alright."
     state = {"hp": 99}
@@ -24,6 +25,37 @@ def test_get_plan_prompt():
     assert range_ref in prompt
     assert "3 turns" in prompt
     assert "Goal 1" in prompt
+    # Check default fallback to PLAN_INTERVAL_TURNS injection
+    assert f"{config.PLAN_INTERVAL_TURNS} turns" in prompt
+    assert f"once every {config.PLAN_INTERVAL_TURNS} Progress turns" in prompt
+
+
+def test_plan_prompt_interval_turns_injection():
+    from rachel.agent.prompts import get_dynamic_plan_directive
+    prev_plan = [{"id": 1, "description": "Goal 1", "status": "to-do"}]
+    range_ref = "Start ... End"
+    
+    # Custom interval_turns injection
+    prompt_7 = get_plan_prompt(prev_plan, "1 turn", range_ref, interval_turns=7)
+    assert "7 turns" in prompt_7
+    assert "once every 7 Progress turns" in prompt_7
+
+    directive_5 = get_dynamic_plan_directive(prev_plan, "1 turn", range_ref, interval_turns=5)
+    assert "5 turns" in directive_5
+    assert "once every 5 Progress turns" in directive_5
+
+
+def test_static_system_prompt_interval_turns_injection():
+    from rachel.agent.prompts import get_static_system_prompt
+    import rachel.config as config
+
+    # Default fallback injection
+    default_prompt = get_static_system_prompt()
+    assert f"once every {config.PLAN_INTERVAL_TURNS} Progress turns" in default_prompt
+
+    # Custom plan_interval_turns injection
+    custom_prompt = get_static_system_prompt(plan_interval_turns=6)
+    assert "once every 6 Progress turns" in custom_prompt
 
 
 def test_get_tools_schema_filtering():

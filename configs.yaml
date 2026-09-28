@@ -14,6 +14,12 @@ state:
   max_string_length: 128
   max_depth: 8
   max_width: 64
+  # Working memory notes for LLM to communicate with future self
+  notes:
+    max_calls_per_turn: 3
+    max_chars_per_note: 300
+    max_chars_per_turn: 500
+    max_total_notes: 8
 
 
 sandbox:
@@ -47,6 +53,9 @@ orchestration:
   plan_offset: 2
   plan_summary_gap: 8
   plan_cleanup_gap: 9
+  progress:
+    summary_replace_actual_history: true
+    initial_num_msgs_to_include: 4
   plan:
     # Trigger configurations: "periodic", "probabilistic", or "disabled"
     trigger_type: "periodic"
