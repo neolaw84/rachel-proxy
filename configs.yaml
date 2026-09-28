@@ -47,6 +47,9 @@ orchestration:
   plan_offset: 2
   plan_summary_gap: 8
   plan_cleanup_gap: 9
+  progress:
+    summary_replace_actual_history: true
+    initial_num_msgs_to_include: 4
   plan:
     # Trigger configurations: "periodic", "probabilistic", or "disabled"
     trigger_type: "periodic"

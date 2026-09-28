@@ -56,6 +56,18 @@ PLAN_OFFSET: int = int(_orchestration_cfg.get("plan_offset", 0))
 PLAN_SUMMARY_GAP: int = int(_orchestration_cfg.get("plan_summary_gap", 1))
 PLAN_CLEANUP_GAP: int = int(_orchestration_cfg.get("plan_cleanup_gap", 2))
 
+_progress_cfg = _orchestration_cfg.get("progress", {})
+PROGRESS_SUMMARY_REPLACE_ACTUAL_HISTORY: bool = bool(
+    _progress_cfg.get(
+        "summary_replace_actual_history",
+        _orchestration_cfg.get("summary_replace_actual_history", False)
+    )
+)
+PROGRESS_INITIAL_NUM_MSGS_TO_INCLUDE: int = int(
+    _progress_cfg.get("initial_num_msgs_to_include", 4)
+)
+SUMMARY_REPLACE_ACTUAL_HISTORY: bool = PROGRESS_SUMMARY_REPLACE_ACTUAL_HISTORY
+
 _plan_cfg = _orchestration_cfg.get("plan", {})
 PLAN_TRIGGER_TYPE: str = _plan_cfg.get("trigger_type", "periodic")
 PLAN_INTERVAL_TURNS: int = int(_plan_cfg.get("interval_turns", 10))

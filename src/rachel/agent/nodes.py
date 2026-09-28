@@ -163,6 +163,58 @@ def _get_recent_turn_messages(
     return result
 
 
+def _filter_outgoing_messages_with_summary(
+    openai_msgs: list[dict],
+    last_summary_turn: int,
+    initial_num_msgs_to_include: int = 4,
+) -> list[dict]:
+    """Filter outgoing OpenAI messages for Progress mode when summary_replace_actual_history is True.
+
+    Preserves:
+    - Message 0 (system character card / prompt) if present at index 0.
+    - Up to initial_num_msgs_to_include initial non-system messages.
+    - All messages after last_summary_turn up to the latest user and tool messages.
+    - Deduplicates overlapping indices between initial messages and recent messages.
+    """
+    if not openai_msgs or last_summary_turn <= 0:
+        return openai_msgs
+
+    card_msg = None
+    first_idx = 0
+    if openai_msgs[0].get("role") == "system":
+        card_msg = dict(openai_msgs[0])
+        first_idx = 1
+
+    start_idx = first_idx
+    asst_count = 0
+    found_summary_boundary = False
+    for i in range(first_idx, len(openai_msgs)):
+        if openai_msgs[i].get("role") == "assistant":
+            asst_count += 1
+            if asst_count == last_summary_turn:
+                start_idx = i + 1
+                found_summary_boundary = True
+                break
+
+    if not found_summary_boundary:
+        return openai_msgs
+
+    end_idx = len(openai_msgs)
+    initial_end = min(first_idx + max(0, initial_num_msgs_to_include), len(openai_msgs))
+    initial_indices = list(range(first_idx, initial_end))
+    recent_indices = list(range(start_idx, end_idx)) if start_idx < end_idx else []
+
+    combined_indices = sorted(list(set(initial_indices) | set(recent_indices)))
+    filtered = [dict(openai_msgs[i]) for i in combined_indices]
+
+    result = []
+    if card_msg:
+        result.append(card_msg)
+
+    result.extend(filtered)
+    return result
+
+
 
 def _calculate_turns_since_update(current_turn: int, last_update_turn: int) -> tuple[int, str]:
     """Calculate the number of turns since the last update and format the string representation."""
@@ -235,6 +287,34 @@ def _build_llm_node(
             state["messages"],
             turn_numbers=state_container.get("turn_numbers"),
         )
+
+        from rachel.config import (
+            PROGRESS_SUMMARY_REPLACE_ACTUAL_HISTORY,
+            PROGRESS_INITIAL_NUM_MSGS_TO_INCLUDE,
+        )
+        last_summary_turn = state_container.get("last_summary_turn", 0)
+        replace_history = (
+            configurable.get("summary_replace_actual_history")
+            if configurable.get("summary_replace_actual_history") is not None
+            else state_container.get(
+                "summary_replace_actual_history",
+                PROGRESS_SUMMARY_REPLACE_ACTUAL_HISTORY,
+            )
+        )
+        initial_k = (
+            configurable.get("initial_num_msgs_to_include")
+            if configurable.get("initial_num_msgs_to_include") is not None
+            else state_container.get(
+                "initial_num_msgs_to_include",
+                PROGRESS_INITIAL_NUM_MSGS_TO_INCLUDE,
+            )
+        )
+        if replace_history and last_summary_turn > 0:
+            openai_msgs = _filter_outgoing_messages_with_summary(
+                openai_msgs,
+                last_summary_turn=last_summary_turn,
+                initial_num_msgs_to_include=initial_k,
+            )
 
         # Append static system prompt to Message 0 (or insert at index 0 if not system)
         if openai_msgs and openai_msgs[0].get("role") == "system":
