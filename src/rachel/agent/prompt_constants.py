@@ -69,7 +69,7 @@ SANDBOX_INFO_V8 = (
     "     * Example 1 (multi-update): `update_plan_status([{{id: 1, status: \"completed\"}}, {{id: 2, status: \"in-progress\"}}])`\n"
     "     * Example 2 (single-update): `update_plan_status([{{id: \"find_key\", status: \"completed\"}}])`\n"
     "     * Example 3 (abandoning path): `update_plan_status([{{id: \"convince_guard\", status: \"abandoned\"}}])`\n"
-    "  4. `append_to_notes(note)`: Appends an observation or note to your future self (accessible in subsequent Progress turns and the next Plan turn).\n"
+    "  4. `append_to_notes(note)`: Use this to remind your future self what you think should happen in the future. Likewise, you will be receiving the note from your past self (if it is empty, that means your past self didn't leave any note for you).\n"
     "     * `note` can be a string or array of strings. Notes are automatically truncated if exceeding length limit, and auto-tagged with the current turn number.\n"
     "     * Example: `append_to_notes(\"Player lied about identity; town guards are suspicious.\")`\n"
 )

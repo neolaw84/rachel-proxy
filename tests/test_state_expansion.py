@@ -143,7 +143,7 @@ async def test_graph_orchestration_nodes(mock_streaming, mock_direct):
          )
 
          # Assert summary rolling append from summary node execution
-         assert result["after_state"]["summary"] == "They entered a dungeon.\n\nA heavy oak door was opened by the player."
+         assert result["after_state"]["summary"] == "They entered a dungeon.\n\nSummary of Turn 1 to Turn 1:\nA heavy oak door was opened by the player."
          # Assert plan checklist replacement from plan node execution
          assert result["after_state"]["plan"] == [
               {"id": 1, "description": "open door", "status": "to-do", "remark": ""},
@@ -193,3 +193,65 @@ async def test_graph_routing_with_disabled_triggers(mock_streaming, mock_direct)
          assert mock_direct.call_count == 0
          # Main LLM is still called
          assert mock_streaming.call_count == 1
+
+
+# 6. Test Summary Turn Prefix formatting and de-duplication
+@pytest.mark.asyncio
+@patch("rachel.agent.openrouter.call_openrouter_direct", new_callable=AsyncMock)
+async def test_summary_node_turn_prefix_formatting(mock_direct):
+    from rachel.agent.nodes import _build_summary_node
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    state_container = {
+        "rpg_state": {
+            "state": {},
+            "plan": [],
+            "summary": "Summary of Turn 1 to Turn 4:\nInitial prologue.",
+            "hidden_state": {},
+        },
+        "last_summary_turn": 4,
+    }
+
+    # Simulate messages corresponding to current turn 13 (12 assistant messages)
+    msgs = []
+    for i in range(1, 13):
+        msgs.append(HumanMessage(content=f"User {i}"))
+        msgs.append(AIMessage(content=f"Assistant {i}"))
+    msgs.append(HumanMessage(content="User 13"))
+
+    state = {
+        "messages": msgs,
+        "rpg_state": state_container["rpg_state"],
+        "sandbox_timeout": 2.0,
+        "iteration_count": 0,
+    }
+    config = {"configurable": {}}
+
+    # Case 1: Raw summary delta without prefix
+    mock_direct.return_value = ("Party reached the ancient ruins.", [])
+    node = _build_summary_node("test_key", state_container)
+    await node(state, config)
+
+    expected = (
+        "Summary of Turn 1 to Turn 4:\nInitial prologue.\n\n"
+        "Summary of Turn 5 to Turn 12:\nParty reached the ancient ruins."
+    )
+    assert state_container["rpg_state"]["summary"] == expected
+    assert state_container["last_summary_turn"] == 12
+
+    # Case 2: Model already provided prefix (avoid duplicate prefix)
+    mock_direct.return_value = ("Summary of Turn 13 to Turn 16:\nParty explored the inner sanctum.", [])
+    state_container["last_summary_turn"] = 12
+    # Add 4 more turns (assistant messages 13, 14, 15, 16)
+    for i in range(13, 17):
+        msgs.append(HumanMessage(content=f"User {i}"))
+        msgs.append(AIMessage(content=f"Assistant {i}"))
+    msgs.append(HumanMessage(content="User 17"))
+
+    await node(state, config)
+    expected_case2 = (
+        expected + "\n\n"
+        "Summary of Turn 13 to Turn 16:\nParty explored the inner sanctum."
+    )
+    assert state_container["rpg_state"]["summary"] == expected_case2
+    assert state_container["last_summary_turn"] == 16

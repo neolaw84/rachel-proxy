@@ -114,6 +114,7 @@ Settings for the summary node that compiles the rolling story recap:
 * **`initial_num_msgs_to_include`**: Integer. Number of initial non-system messages (after Message 0) preserved at the prefix of the outgoing messages stream (default `4`).
 * **`bundle_llm`**: **Deprecated/Removed**. All updates are now executed concurrently and synchronously prior to the narrative step using the node's own LLM settings (corresponding to `bundle_llm = false` behavior).
 * **`summary_target_words`**: Integer. Target word length for the summary block (default `200` words).
+* **Summary Block Formatting**: Each incremental summary block is automatically stored and injected with the header prefix `Summary of Turn x to Turn y:\n<summary content>`, ensuring clear turn boundary context when referenced across turns and operating modes.
 * **`llm.model`**: Text. The fallback model for the summarizer on OpenRouter when the client request omits the `model` parameter (default `"google/gemini-3.5-flash"`). When the client specifies a model, that model is always used instead. For non-OpenRouter providers, it falls back to the active provider's default model.
 * **`llm.base_url`**: Text. Completion URL override for the summarizer model.
 * **`llm.include_reasoning`**: Boolean (`true`/`false`). Enable reasoning support.
