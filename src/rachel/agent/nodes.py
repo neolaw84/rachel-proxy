@@ -651,6 +651,7 @@ def _build_plan_node(
             start_turn=start_plan_turn,
             end_turn=end_plan_turn,
             interval_turns=PLAN_INTERVAL_TURNS,
+            notes=rpg.get("notes", []),
         )
 
         from rachel.config import PLAN_INITIAL_NUM_MSGS_TO_INCLUDE
@@ -676,6 +677,7 @@ def _build_plan_node(
             start_turn=start_plan_turn,
             end_turn=end_plan_turn,
             interval_turns=PLAN_INTERVAL_TURNS,
+            notes=rpg.get("notes", []),
         )
 
 
@@ -831,11 +833,12 @@ def _build_plan_node(
                     })
 
                 rpg["plan"] = normalized
+                rpg["notes"] = []
 
                 state_container["last_plan_turn"] = current_turn
 
                 logger.info(
-                    "Graph Plan node update complete:\n%s",
+                    "Graph Plan node update complete. Notes buffer flushed:\n%s",
                     json.dumps(rpg["plan"], indent=2, ensure_ascii=False)
                 )
                 await _emit_orchestration_signal(
@@ -1198,12 +1201,17 @@ def _build_pre_action_node(
         plan = rpg.get("plan", [])
         summary = rpg.get("summary", "")
 
+        notes = rpg.get("notes", [])
+
         msg_parts = []
         if plan:
             plan_str = json.dumps(plan, indent=2, ensure_ascii=False)
             msg_parts.append(f"[Plan]\n{plan_str}")
         if summary and isinstance(summary, str) and summary.strip():
             msg_parts.append(f"[Summary]\n{summary.strip()}")
+        if notes:
+            notes_str = json.dumps(notes, indent=2, ensure_ascii=False)
+            msg_parts.append(f"[Notes]\n{notes_str}")
 
         if msg_parts:
             await _emit_orchestration_signal(

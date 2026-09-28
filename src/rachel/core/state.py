@@ -21,21 +21,24 @@ logger = logging.getLogger(__name__)
 
 
 def _migrate_state(state_dict: dict[str, Any]) -> dict[str, Any]:
-    """Migrate state to the 4-element structure (state, plan, summary, hidden_state) if needed."""
-    if any(k in state_dict for k in ("state", "plan", "summary", "hidden_state")):
+    """Migrate state to the 5-element structure (state, plan, summary, hidden_state, notes) if needed."""
+    if any(k in state_dict for k in ("state", "plan", "summary", "hidden_state", "notes")):
         hidden = dict(state_dict.get("hidden_state", {})) if isinstance(state_dict.get("hidden_state"), dict) else {}
         hidden.pop("session_info", None)
+        notes = list(state_dict.get("notes", [])) if isinstance(state_dict.get("notes"), list) else []
         return {
             "state": state_dict.get("state", {}),
             "plan": state_dict.get("plan", []),
             "summary": state_dict.get("summary", ""),
             "hidden_state": hidden,
+            "notes": notes,
         }
     return {
         "state": state_dict,
         "plan": [],
         "summary": "",
         "hidden_state": {},
+        "notes": [],
     }
 
 

@@ -37,7 +37,9 @@ STATE_SECTION_TEMPLATE = (
     "- **Summary:**\n"
     "{summary}\n\n"
     "- **Plan:**\n"
-    "{plan_json}"
+    "{plan_json}\n\n"
+    "- **Active Notes to Future Self:**\n"
+    "{notes_section}"
 )
 
 
@@ -67,6 +69,9 @@ SANDBOX_INFO_V8 = (
     "     * Example 1 (multi-update): `update_plan_status([{{id: 1, status: \"completed\"}}, {{id: 2, status: \"in-progress\"}}])`\n"
     "     * Example 2 (single-update): `update_plan_status([{{id: \"find_key\", status: \"completed\"}}])`\n"
     "     * Example 3 (abandoning path): `update_plan_status([{{id: \"convince_guard\", status: \"abandoned\"}}])`\n"
+    "  4. `append_to_notes(note)`: Appends an observation or note to your future self (accessible in subsequent Progress turns and the next Plan turn).\n"
+    "     * `note` can be a string or array of strings. Notes are automatically truncated if exceeding length limit, and auto-tagged with the current turn number.\n"
+    "     * Example: `append_to_notes(\"Player lied about identity; town guards are suspicious.\")`\n"
 )
 
 STATE_CONSTRAINTS_INFO_TEMPLATE = (
@@ -177,6 +182,7 @@ DYNAMIC_PLAN_DIRECTIVE_TEMPLATE = (
     "State:\n```json\n{state_str}\n```\n\n"
     "Hidden-State:\n```json\n{hidden_str}\n```\n\n"
     "Rolling story summary so far (up to turn {summary_up_to_turn}):\n{summary_str}\n\n"
+    "Recent Narrator Notes (from preceding Progress turns):\n{notes_str}\n\n"
     "The current plan (last updated {turns_since_update} turns ago):\n{prev_plan}\n\n"
 )
 

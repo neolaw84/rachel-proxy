@@ -255,13 +255,64 @@ def _v8_worker(
     }
     """
 
+    from rachel.config import (
+        NOTES_MAX_CALLS_PER_TURN,
+        NOTES_MAX_CHARS_PER_NOTE,
+        NOTES_MAX_CHARS_PER_TURN,
+        NOTES_MAX_TOTAL_NOTES,
+    )
+
+    js_init += f"""
+    var NOTES_MAX_CALLS_PER_TURN = {NOTES_MAX_CALLS_PER_TURN};
+    var NOTES_MAX_CHARS_PER_NOTE = {NOTES_MAX_CHARS_PER_NOTE};
+    var NOTES_MAX_CHARS_PER_TURN = {NOTES_MAX_CHARS_PER_TURN};
+    var NOTES_MAX_TOTAL_NOTES = {NOTES_MAX_TOTAL_NOTES};
+
+    var _notes_call_count = 0;
+    var _notes_chars_appended = 0;
+    function append_to_notes(noteText) {{
+        if (!notes || !Array.isArray(notes)) {{
+            notes = [];
+        }}
+        if (_notes_call_count >= NOTES_MAX_CALLS_PER_TURN) {{
+            console.log("[Notes] Cap reached: max " + NOTES_MAX_CALLS_PER_TURN + " calls per turn.");
+            return "Note ignored: max calls per turn reached";
+        }}
+        var items = Array.isArray(noteText) ? noteText : [noteText];
+        for (var i = 0; i < items.length; i++) {{
+            if (_notes_call_count >= NOTES_MAX_CALLS_PER_TURN) break;
+            var item = items[i];
+            if (item === null || item === undefined) continue;
+            var s = String(item).trim();
+            if (!s) continue;
+            if (s.length > NOTES_MAX_CHARS_PER_NOTE) {{
+                s = s.substring(0, NOTES_MAX_CHARS_PER_NOTE) + "...";
+            }}
+            if (_notes_chars_appended + s.length > NOTES_MAX_CHARS_PER_TURN) {{
+                var allowed = NOTES_MAX_CHARS_PER_TURN - _notes_chars_appended;
+                if (allowed <= 0) break;
+                s = s.substring(0, allowed);
+            }}
+            notes.push({{ text: s }});
+            _notes_call_count++;
+            _notes_chars_appended += s.length;
+        }}
+        while (notes.length > NOTES_MAX_TOTAL_NOTES) {{
+            notes.shift();
+        }}
+        console.log("[Notes] Appended note. Total active notes: " + notes.length);
+        return "Appended note successfully";
+    }}
+    """
+
     is_wrapper = isinstance(state, dict) and "state" in state and "hidden_state" in state
 
     if is_wrapper:
         state_json = json.dumps(state.get("state", {}), ensure_ascii=False)
         hidden_json = json.dumps(state.get("hidden_state", {}), ensure_ascii=False)
         plan_json = json.dumps(state.get("plan", []), ensure_ascii=False)
-        js_init += f"\nvar state = {state_json};\nvar hidden_state = {hidden_json};\nvar plan = {plan_json};\n"
+        notes_json = json.dumps(state.get("notes", []), ensure_ascii=False)
+        js_init += f"\nvar state = {state_json};\nvar hidden_state = {hidden_json};\nvar plan = {plan_json};\nvar notes = {notes_json};\n"
     else:
         state_json = json.dumps(state, ensure_ascii=False)
         js_init += f"\nvar state = {state_json};\n"
@@ -277,7 +328,7 @@ def _v8_worker(
             _logs.push("--- Sandbox Exception ---");
             _logs.push(e.stack || e.toString());
         }}
-        JSON.stringify({{state: state, hidden_state: hidden_state, plan: plan, logs: _logs}});
+        JSON.stringify({{state: state, hidden_state: hidden_state, plan: plan, notes: notes, logs: _logs}});
         """
     else:
         js_run = f"""
@@ -301,6 +352,7 @@ def _v8_worker(
             updated_state = res.get("state", {})
             updated_hidden = res.get("hidden_state", {})
             updated_plan = res.get("plan", [])
+            updated_notes = res.get("notes", [])
             if not isinstance(updated_state, dict):
                 logs = "\n".join(res.get("logs", [])) + (
                     "\n--- Sandbox Warning: 'state' was replaced with a non-object; "
@@ -337,11 +389,19 @@ def _v8_worker(
                             reconstructed.append(item)
                     updated_plan = reconstructed
 
+            if not isinstance(updated_notes, list):
+                logs = "\n".join(res.get("logs", [])) + (
+                    "\n--- Sandbox Warning: 'notes' was replaced with a non-list; "
+                    "reverting to original notes. ---\n"
+                )
+                updated_notes = state.get("notes", [])
+
             logs = "\n".join(res.get("logs", []))
             updated_wrapper = {
                 "state": updated_state,
                 "hidden_state": updated_hidden,
-                "plan": updated_plan
+                "plan": updated_plan,
+                "notes": updated_notes,
             }
             result_queue.put((updated_wrapper, logs))
         else:

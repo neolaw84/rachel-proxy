@@ -41,7 +41,7 @@ def test_get_before_state_none(pg_engine):
     """Return initial blank state when turn key is None."""
     storage = PostgresSessionStorage(session_id="test-session-none", max_size=5, engine=pg_engine)
     state = storage.get_before_state(None)
-    assert state == {"state": {}, "plan": [], "summary": "", "hidden_state": {}}
+    assert state == {"state": {}, "plan": [], "summary": "", "hidden_state": {}, "notes": []}
 
 
 def test_get_before_state_not_found(pg_engine):

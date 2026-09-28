@@ -165,6 +165,20 @@ def get_static_system_prompt(
 
 
 
+def _format_notes_for_prompt(notes: list | None) -> str:
+    if not notes:
+        return "[No active notes]"
+    notes_lines = []
+    for n in notes:
+        if isinstance(n, dict):
+            t = n.get("turn", "?")
+            txt = n.get("text", "") or n.get("note", "")
+            notes_lines.append(f"- (Turn {t}): {txt}")
+        elif isinstance(n, str) and n.strip():
+            notes_lines.append(f"- {n.strip()}")
+    return "\n".join(notes_lines) if notes_lines else "[No active notes]"
+
+
 def get_dynamic_turn_directive(
     rpg_state: Any,
     max_iterations: int,
@@ -185,11 +199,13 @@ def get_dynamic_turn_directive(
 
     # 2. Format state sections
     rpg_dict = rpg_state if isinstance(rpg_state, dict) else {}
+    notes_formatted = _format_notes_for_prompt(rpg_dict.get("notes", []))
     state_section = STATE_SECTION_TEMPLATE.format(
         state_json=json.dumps(rpg_dict.get("state", {}), indent=2, ensure_ascii=False),
         hidden_state_json=json.dumps(rpg_dict.get("hidden_state", {}), indent=2, ensure_ascii=False),
         summary=rpg_dict.get("summary") or "[No events summarized yet]",
         plan_json=json.dumps(rpg_dict.get("plan", []), indent=2, ensure_ascii=False),
+        notes_section=notes_formatted,
     )
 
 
@@ -248,6 +264,7 @@ def get_plan_prompt(
     start_turn: int | str = 1,
     end_turn: int | str = 1,
     interval_turns: int | None = None,
+    notes: list[dict] | None = None,
 ) -> str:
     """Return the prompt for the story planner."""
     import rachel.config as config
@@ -258,6 +275,7 @@ def get_plan_prompt(
         hidden_str=json.dumps(hidden_state, indent=2, ensure_ascii=False) if hidden_state is not None else "{}",
         summary_str=summary or "[No events summarized yet]",
         summary_up_to_turn=summary_up_to_turn,
+        notes_str=_format_notes_for_prompt(notes),
         prev_plan=json.dumps(prev_plan, indent=2, ensure_ascii=False) if prev_plan is not None else "[]",
         turns_since_update=turns_since_update,
         range_ref=range_ref,
@@ -301,6 +319,7 @@ def get_dynamic_plan_directive(
     start_turn: int | str = 1,
     end_turn: int | str = 1,
     interval_turns: int | None = None,
+    notes: list[dict] | None = None,
 ) -> str:
     """Return dynamic directive for plan node."""
     import rachel.config as config
@@ -315,6 +334,7 @@ def get_dynamic_plan_directive(
         hidden_str=hidden_str,
         summary_str=summary_str,
         summary_up_to_turn=summary_up_to_turn,
+        notes_str=_format_notes_for_prompt(notes),
         prev_plan=prev_plan_str,
         turns_since_update=turns_since_update,
         range_ref=range_ref,

@@ -124,12 +124,28 @@ def make_tools(state_container: dict[str, Any], sandbox_timeout: float, include_
             "state": rpg.get("state", {}),
             "hidden_state": rpg.get("hidden_state", {}),
             "plan": rpg.get("plan", []),
+            "notes": rpg.get("notes", []),
         }
         updated, output = engine.execute(code, wrapper, sandbox_timeout)
         if isinstance(updated, dict) and "state" in updated and "hidden_state" in updated:
             rpg["state"] = updated["state"]
             rpg["hidden_state"] = updated["hidden_state"]
             rpg["plan"] = updated.get("plan", [])
+
+            # Process notes: tag untagged items with the current turn number
+            current_turn = state_container.get("current_turn", 1)
+            raw_notes = updated.get("notes", [])
+            tagged_notes = []
+            if isinstance(raw_notes, list):
+                for n in raw_notes:
+                    if isinstance(n, dict):
+                        entry = dict(n)
+                        if "turn" not in entry:
+                            entry["turn"] = current_turn
+                        tagged_notes.append(entry)
+                    elif isinstance(n, str) and n.strip():
+                        tagged_notes.append({"turn": current_turn, "text": n.strip()})
+            rpg["notes"] = tagged_notes[-config.NOTES_MAX_TOTAL_NOTES:]
         elif isinstance(updated, dict):
             rpg["state"] = updated
 
@@ -175,7 +191,8 @@ def make_tools(state_container: dict[str, Any], sandbox_timeout: float, include_
                 f"\n\n[Updated Game State]:\n"
                 f"State:\n{json.dumps(rpg_current.get('state', {}), indent=2, ensure_ascii=False)}\n\n"
                 f"Hidden State:\n{json.dumps(rpg_current.get('hidden_state', {}), indent=2, ensure_ascii=False)}\n\n"
-                f"Plan:\n{json.dumps(rpg_current.get('plan', []), indent=2, ensure_ascii=False)}"
+                f"Plan:\n{json.dumps(rpg_current.get('plan', []), indent=2, ensure_ascii=False)}\n\n"
+                f"Notes:\n{json.dumps(rpg_current.get('notes', []), indent=2, ensure_ascii=False)}"
             )
             base_output = (output or "").strip() or "(no output)"
             output = f"{base_output}{state_snapshot}"

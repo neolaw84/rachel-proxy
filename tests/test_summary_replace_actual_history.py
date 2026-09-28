@@ -12,9 +12,9 @@ from rachel.config import (
 
 
 def test_default_config_values():
-    """Verify that summary_replace_actual_history defaults to False and initial_num_msgs_to_include defaults to 4."""
-    assert PROGRESS_SUMMARY_REPLACE_ACTUAL_HISTORY is False
-    assert SUMMARY_REPLACE_ACTUAL_HISTORY is False
+    """Verify that summary_replace_actual_history defaults to True and initial_num_msgs_to_include defaults to 4."""
+    assert PROGRESS_SUMMARY_REPLACE_ACTUAL_HISTORY is True
+    assert SUMMARY_REPLACE_ACTUAL_HISTORY is True
     assert PROGRESS_INITIAL_NUM_MSGS_TO_INCLUDE == 4
 
 
