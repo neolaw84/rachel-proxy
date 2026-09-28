@@ -3,6 +3,7 @@
 import json
 import logging
 import random
+import re
 from typing import Any
 from langchain_core.tools import tool, StructuredTool
 from rachel.sandbox.sandbox import get_sandbox_engine
@@ -237,11 +238,23 @@ def make_tools(state_container: dict[str, Any], sandbox_timeout: float, include_
     def _submit_summary(summary: str) -> str:
         rpg = state_container.get("rpg_state", {})
         if isinstance(rpg, dict):
+            last_summary_turn = state_container.get("last_summary_turn", 0)
+            current_turn = state_container.get("current_turn", 1)
+            start_summary_turn = last_summary_turn + 1
+            end_summary_turn = max(start_summary_turn, current_turn - 1)
+            prefix = f"Summary of Turn {start_summary_turn} to Turn {end_summary_turn}:"
+            clean_summary = re.sub(
+                r"^(?:\*\*)?Summary of Turn \d+ to Turn \d+:(?:\*\*)?\s*",
+                "",
+                summary.strip(),
+                flags=re.IGNORECASE,
+            ).strip()
+            summary_block = f"{prefix}\n{clean_summary}"
             prev = rpg.get("summary", "")
             if prev:
-                rpg["summary"] = prev.strip() + "\n\n" + summary.strip()
+                rpg["summary"] = prev.strip() + "\n\n" + summary_block
             else:
-                rpg["summary"] = summary.strip()
+                rpg["summary"] = summary_block
         return "Summary submitted successfully."
 
     submit_summary = StructuredTool.from_function(

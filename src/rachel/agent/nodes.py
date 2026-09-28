@@ -571,10 +571,19 @@ def _build_summary_node(
                 if summary_delta.startswith('"') and summary_delta.endswith('"'):
                     summary_delta = summary_delta[1:-1].strip()
 
+            prefix = f"Summary of Turn {start_summary_turn} to Turn {end_summary_turn}:"
+            clean_delta = re.sub(
+                r"^(?:\*\*)?Summary of Turn \d+ to Turn \d+:(?:\*\*)?\s*",
+                "",
+                summary_delta.strip(),
+                flags=re.IGNORECASE,
+            ).strip()
+            summary_block = f"{prefix}\n{clean_delta}"
+
             if prev_summary:
-                rpg["summary"] = prev_summary.strip() + "\n\n" + summary_delta
+                rpg["summary"] = prev_summary.strip() + "\n\n" + summary_block
             else:
-                rpg["summary"] = summary_delta
+                rpg["summary"] = summary_block
 
             state_container["last_summary_turn"] = end_summary_turn
 
