@@ -108,6 +108,7 @@ async def run_agent(
     fallback_orchestration_model: str | None = None,
     summary_replace_actual_history: bool | None = None,
     initial_num_msgs_to_include: int | None = None,
+    last_num_msgs_to_include: int | None = None,
 ) -> dict[str, Any]:
     """Run the LangGraph agent for one proxy turn."""
     if turn_number is None:
@@ -127,6 +128,8 @@ async def run_agent(
         state_container["summary_replace_actual_history"] = summary_replace_actual_history
     if initial_num_msgs_to_include is not None:
         state_container["initial_num_msgs_to_include"] = initial_num_msgs_to_include
+    if last_num_msgs_to_include is not None:
+        state_container["last_num_msgs_to_include"] = last_num_msgs_to_include
     if session_id:
         state_container["session_id"] = session_id
 

@@ -73,6 +73,9 @@ PROGRESS_SUMMARY_REPLACE_ACTUAL_HISTORY: bool = bool(
 PROGRESS_INITIAL_NUM_MSGS_TO_INCLUDE: int = int(
     _progress_cfg.get("initial_num_msgs_to_include", 4)
 )
+PROGRESS_LAST_NUM_MSGS_TO_INCLUDE: int = int(
+    _progress_cfg.get("last_num_msgs_to_include", 4)
+)
 SUMMARY_REPLACE_ACTUAL_HISTORY: bool = PROGRESS_SUMMARY_REPLACE_ACTUAL_HISTORY
 
 _plan_cfg = _orchestration_cfg.get("plan", {})
