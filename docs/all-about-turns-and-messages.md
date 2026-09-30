@@ -46,8 +46,9 @@ These are the modified messages that RACHEL submits to the upstream LLM (via Ope
 3. **Summary History Compaction (`summary_replace_actual_history`)**: When configured to `true`, RACHEL compacts outgoing messages for the main narrative completion:
    - Message 0 (character card / system setup) is preserved.
    - The first $k$ messages (configured by `initial_num_msgs_to_include`, default `4`) are preserved.
-   - All messages after the latest summary (`last_summary_turn`) up to the active turn are preserved.
-   - Older conversational history between message $k$ and the latest summary is pruned from outgoing LLM payloads, drastically reducing token consumption while preserving story context via the rolling summary embedded in the dynamic turn directive.
+   - The last $m$ messages (configured by `last_num_msgs_to_include`, default `4`) and all messages after the latest summary (`last_summary_turn`) up to the active turn are preserved.
+   - Older conversational history between initial message $k$ and the recent tail end is pruned from outgoing LLM payloads, drastically reducing token consumption while preserving story context via the rolling summary embedded in the dynamic turn directive.
+   - Overlapping indices between the initial and tail segments are automatically deduplicated to prevent duplicates when history is short (e.g., 6 messages).
 
 ### C. Streaming Reasoning & Orchestration Signals
 When completions are requested with `stream: true`, RACHEL streams live intermediate progress via OpenAI-compatible `delta: {"reasoning_content": ...}` chunks:

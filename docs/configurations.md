@@ -82,9 +82,11 @@ Settings for the main narrative generation node (Progress mode):
   * When `true`, outgoing messages sent to the LLM are mirrored/compacted:
     - Message 0 (system character card) is always preserved at index 0.
     - The first $k$ messages (defined by `initial_num_msgs_to_include`, default `4`) are always preserved.
-    - All messages after the latest summary (turns > `last_summary_turn`) up to the current turn's action and tool rounds are always preserved.
-    - Historical messages between message $k$ and the latest summary are omitted from the outgoing LLM payload, saving significant context tokens while retaining the rolling summary in the dynamic directive.
+    - The last $m$ messages (defined by `last_num_msgs_to_include`, default `4`) as well as all messages after the latest summary (turns > `last_summary_turn`) up to the current turn's action and tool rounds are always preserved.
+    - Historical messages between initial message $k$ and the recent tail end are omitted from the outgoing LLM payload, saving significant context tokens while retaining the rolling summary in the dynamic directive.
+    - Overlapping indices between the initial and tail segments are automatically deduplicated to prevent duplicates when history is short (e.g., 6 messages).
 * **`initial_num_msgs_to_include`**: Integer (default `4`). Number of initial non-system messages (after Message 0) preserved at the prefix of the outgoing messages stream.
+* **`last_num_msgs_to_include`**: Integer (default `4`). Number of recent non-system messages preserved at the tail end of the outgoing messages stream.
 
 ### 📋 2. Story Planning Configuration (`orchestration.plan`)
 Settings for the narrative planner node that updates your story roadmap checklist:

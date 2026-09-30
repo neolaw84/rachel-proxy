@@ -167,6 +167,7 @@ def _filter_outgoing_messages_with_summary(
     openai_msgs: list[dict],
     last_summary_turn: int,
     initial_num_msgs_to_include: int = 4,
+    last_num_msgs_to_include: int = 4,
 ) -> list[dict]:
     """Filter outgoing OpenAI messages for Progress mode when summary_replace_actual_history is True.
 
@@ -174,7 +175,8 @@ def _filter_outgoing_messages_with_summary(
     - Message 0 (system character card / prompt) if present at index 0.
     - Up to initial_num_msgs_to_include initial non-system messages.
     - All messages after last_summary_turn up to the latest user and tool messages.
-    - Deduplicates overlapping indices between initial messages and recent messages.
+    - At least last_num_msgs_to_include tail non-system messages.
+    - Deduplicates overlapping indices between initial messages, post-summary messages, and tail messages.
     """
     if not openai_msgs or last_summary_turn <= 0:
         return openai_msgs
@@ -200,11 +202,13 @@ def _filter_outgoing_messages_with_summary(
         return openai_msgs
 
     end_idx = len(openai_msgs)
-    initial_end = min(first_idx + max(0, initial_num_msgs_to_include), len(openai_msgs))
+    initial_end = min(first_idx + max(0, initial_num_msgs_to_include), end_idx)
     initial_indices = list(range(first_idx, initial_end))
-    recent_indices = list(range(start_idx, end_idx)) if start_idx < end_idx else []
+    post_summary_indices = list(range(start_idx, end_idx)) if start_idx < end_idx else []
+    tail_start = max(first_idx, end_idx - max(0, last_num_msgs_to_include))
+    tail_indices = list(range(tail_start, end_idx))
 
-    combined_indices = sorted(list(set(initial_indices) | set(recent_indices)))
+    combined_indices = sorted(list(set(initial_indices) | set(post_summary_indices) | set(tail_indices)))
     filtered = [dict(openai_msgs[i]) for i in combined_indices]
 
     result = []
@@ -291,6 +295,7 @@ def _build_llm_node(
         from rachel.config import (
             PROGRESS_SUMMARY_REPLACE_ACTUAL_HISTORY,
             PROGRESS_INITIAL_NUM_MSGS_TO_INCLUDE,
+            PROGRESS_LAST_NUM_MSGS_TO_INCLUDE,
         )
         last_summary_turn = state_container.get("last_summary_turn", 0)
         replace_history = (
@@ -309,11 +314,20 @@ def _build_llm_node(
                 PROGRESS_INITIAL_NUM_MSGS_TO_INCLUDE,
             )
         )
+        last_k = (
+            configurable.get("last_num_msgs_to_include")
+            if configurable.get("last_num_msgs_to_include") is not None
+            else state_container.get(
+                "last_num_msgs_to_include",
+                PROGRESS_LAST_NUM_MSGS_TO_INCLUDE,
+            )
+        )
         if replace_history and last_summary_turn > 0:
             openai_msgs = _filter_outgoing_messages_with_summary(
                 openai_msgs,
                 last_summary_turn=last_summary_turn,
                 initial_num_msgs_to_include=initial_k,
+                last_num_msgs_to_include=last_k,
             )
 
         # Append static system prompt to Message 0 (or insert at index 0 if not system)
