@@ -54,7 +54,7 @@ orchestration:
   plan_summary_gap: 12
   plan_cleanup_gap: 13
   progress:
-    summary_replace_actual_history: true
+    summary_replace_actual_history: false
     initial_num_msgs_to_include: 16
     last_num_msgs_to_include: 16
   plan:

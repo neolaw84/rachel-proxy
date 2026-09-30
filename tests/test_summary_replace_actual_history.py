@@ -14,10 +14,42 @@ from rachel.config import (
 
 def test_default_config_values():
     """Verify that summary_replace_actual_history, initial_num_msgs_to_include, and last_num_msgs_to_include load properly."""
-    assert PROGRESS_SUMMARY_REPLACE_ACTUAL_HISTORY is True
-    assert SUMMARY_REPLACE_ACTUAL_HISTORY is True
-    assert PROGRESS_INITIAL_NUM_MSGS_TO_INCLUDE == 4
-    assert PROGRESS_LAST_NUM_MSGS_TO_INCLUDE == 4
+    import importlib
+    import rachel.config
+
+    # 1. Invariant checks on currently active config
+    assert isinstance(rachel.config.PROGRESS_SUMMARY_REPLACE_ACTUAL_HISTORY, bool)
+    assert isinstance(rachel.config.SUMMARY_REPLACE_ACTUAL_HISTORY, bool)
+    assert rachel.config.PROGRESS_INITIAL_NUM_MSGS_TO_INCLUDE > 0
+    assert rachel.config.PROGRESS_LAST_NUM_MSGS_TO_INCLUDE > 0
+
+    # 2. Hermetic test: verify default fallback resolution when orchestration.progress is omitted
+    try:
+        with patch("yaml.safe_load", return_value={}):
+            importlib.reload(rachel.config)
+            assert rachel.config.PROGRESS_SUMMARY_REPLACE_ACTUAL_HISTORY is True
+            assert rachel.config.SUMMARY_REPLACE_ACTUAL_HISTORY is True
+            assert rachel.config.PROGRESS_INITIAL_NUM_MSGS_TO_INCLUDE == 4
+            assert rachel.config.PROGRESS_LAST_NUM_MSGS_TO_INCLUDE == 4
+
+        # 3. Hermetic test: verify custom configuration override parsing
+        with patch("yaml.safe_load", return_value={
+            "orchestration": {
+                "progress": {
+                    "summary_replace_actual_history": False,
+                    "initial_num_msgs_to_include": 8,
+                    "last_num_msgs_to_include": 12,
+                }
+            }
+        }):
+            importlib.reload(rachel.config)
+            assert rachel.config.PROGRESS_SUMMARY_REPLACE_ACTUAL_HISTORY is False
+            assert rachel.config.SUMMARY_REPLACE_ACTUAL_HISTORY is False
+            assert rachel.config.PROGRESS_INITIAL_NUM_MSGS_TO_INCLUDE == 8
+            assert rachel.config.PROGRESS_LAST_NUM_MSGS_TO_INCLUDE == 12
+    finally:
+        # Restore rachel.config to live environment
+        importlib.reload(rachel.config)
 
 
 def test_filter_outgoing_messages_no_summary_or_zero():
@@ -162,6 +194,7 @@ async def test_llm_node_outgoing_messages_with_summary_replacement():
         "last_summary_turn": 8,
         "summary_replace_actual_history": True,
         "initial_num_msgs_to_include": 4,
+        "last_num_msgs_to_include": 4,
     }
 
     captured_openai_messages = []
