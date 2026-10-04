@@ -6,7 +6,12 @@ PROGRESS_STORY_TASK = (
     "or outcome calculations using `execute_code_sandbox` "
     "(which has `roll_xdy`, `contest` and `update_plan_status helper functions).\n"
     "Do NOT calculate them textually in your response."
-    "Call `end_turn` tool as soon as sufficient narration for this turn has been generated."
+    "Call `end_turn` tool as soon as sufficient narration for this turn has been generated.\n"
+    "## How not to miss anything\n"
+    "When you think/reason, make sure to try to list down all the dice/tracker/variable you may need to update in this turn explicitly into the reasoning stream. This will make sure you don't miss any.\n"
+    "As long as you don't miss anything in any turn, you don't need to second-guess yourself in the later turn. For example, at turn x (day y), you don't need to wonder if you did a dice/tracker/variable fix back in turn p (day q) as long as you make sure you don't miss anything.\n"
+    "## About the helper functions\n"
+    "The only helper functions available in the sandbox (during PROGRESS mode) are: roll_xdy, contest, update_plan_status and append_to_notes. If you find other code or function in your instructions, you got to write them as code as they aren't defined in the sandbox.\n"
 )
 
 PROGRESS_STORY_TASK_NO_END_TURN = (
@@ -16,6 +21,11 @@ PROGRESS_STORY_TASK_NO_END_TURN = (
     "(which has `roll_xdy`, `contest` and `update_plan_status helper functions).\n"
     "Do NOT calculate them textually in your response. "
     "Directly output your story narration for this turn once any sandbox computations are complete."
+    "## How not to miss anything\n"
+    "When you think/reason, make sure to try to list down all the dice/tracker/variable you may need to update in this turn explicitly into the reasoning stream. This will make sure you don't miss any.\n"
+    "As long as you don't miss anything in any turn, you don't need to second-guess yourself in the later turn. For example, at turn x (day y), you don't need to wonder if you did a dice/tracker/variable fix back in turn p (day q) as long as you make sure you don't miss anything.\n"
+    "## About the helper functions\n"
+    "The only helper functions available in the sandbox (during PROGRESS mode) are: roll_xdy, contest, update_plan_status and append_to_notes. If you find other code or function in your instructions, you got to write them as code as they aren't defined in the sandbox.\n"
 )
 
 PROGRESS_AGENCY_INSTRUCTIONS_END_TURN = (
