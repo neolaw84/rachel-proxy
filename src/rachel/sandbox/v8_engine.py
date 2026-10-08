@@ -2,6 +2,7 @@ import json
 import logging
 import multiprocessing
 import os
+import queue
 import sys
 import traceback
 from typing import Any
@@ -432,6 +433,7 @@ class V8SandboxEngine(SandboxEngine):
         state: dict[str, Any],
         timeout_seconds: float = 2.0,
     ) -> tuple[dict[str, Any], str]:
+        logger.debug("Executing code in V8 sandbox (timeout=%.1fs):\n%s", timeout_seconds, code)
         ctx = multiprocessing.get_context("spawn")
         result_queue: multiprocessing.Queue = ctx.Queue()
 
@@ -441,19 +443,21 @@ class V8SandboxEngine(SandboxEngine):
             daemon=True,
         )
         proc.start()
-        proc.join(timeout=timeout_seconds)
 
-        if proc.is_alive():
-            proc.terminate()
+        try:
+            updated_state, output = result_queue.get(timeout=timeout_seconds)
             proc.join(timeout=2.0)
-            if proc.is_alive():
-                proc.kill()
-            logger.warning("V8 sandbox timed out after %.1fs and was killed.", timeout_seconds)
-            return state, f"[Sandbox timed out after {timeout_seconds}s — execution aborted]"
-
-        if not result_queue.empty():
-            updated_state, output = result_queue.get_nowait()
+            logger.debug("V8 sandbox execution finished successfully. Output:\n%s", output)
             return updated_state, output
+        except queue.Empty:
+            if proc.is_alive():
+                proc.terminate()
+                proc.join(timeout=2.0)
+                if proc.is_alive():
+                    proc.kill()
+                logger.warning("V8 sandbox timed out after %.1fs and was killed.", timeout_seconds)
+                logger.debug("Code that timed out in V8 sandbox:\n%s", code)
+                return state, f"[Sandbox timed out after {timeout_seconds}s — execution aborted]"
 
-        logger.error("V8 sandbox worker exited without producing a result (exit code %s).", proc.exitcode)
-        return state, f"[Sandbox worker crashed unexpectedly (exit code {proc.exitcode})]"
+            logger.error("V8 sandbox worker exited without producing a result (exit code %s).", proc.exitcode)
+            return state, f"[Sandbox worker crashed unexpectedly (exit code {proc.exitcode})]"

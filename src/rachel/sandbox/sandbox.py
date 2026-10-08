@@ -30,4 +30,5 @@ def execute_sandbox(
     timeout_seconds: float = 2.0,
 ) -> tuple[dict[str, Any], str]:
     """Execute code using the default/configured sandbox engine (compatibility helper)."""
+    logger.debug("execute_sandbox executing code (timeout=%.1fs):\n%s", timeout_seconds, code)
     return get_sandbox_engine().execute(code, state, timeout_seconds)
