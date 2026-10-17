@@ -196,9 +196,8 @@ async def test_cleanup_node_exhausts_retries(mock_call):
 @pytest.mark.asyncio
 @patch("rachel.agent.nodes._GraphDelegate.call_openrouter_direct")
 async def test_nodes_model_override_and_fallback(mock_call):
-    """Verify that plan, summary, and cleanup nodes respect explicit model, fallback_model, and default."""
+    """Verify priority: config model (if exists) > client model > fallback_model > deepseek v4.1 flash."""
     from rachel.agent.nodes import _build_summary_node
-    from rachel.config import PLAN_MODEL, SUMMARY_MODEL, CLEANUP_MODEL
 
     mock_call.return_value = '[{"id": 1, "description": "goal", "status": "to-do", "remark": ""}]'
 
@@ -221,53 +220,143 @@ async def test_nodes_model_override_and_fallback(mock_call):
     }
     config = RunnableConfig(configurable={})
 
-    # 1. Plan node with explicit client model
-    plan_node_explicit = _build_plan_node(
-        api_key="fake_key",
-        state_container=state_container,
-        model="custom-client-model",
-    )
-    await plan_node_explicit(state, config)
-    assert mock_call.call_args.kwargs["model"] == "custom-client-model"
+    # 1. Plan node with empty config (default) and explicit client model -> uses client model
+    with patch("rachel.config.PLAN_MODEL", None):
+        plan_node_client = _build_plan_node(
+            api_key="fake_key",
+            state_container=state_container,
+            model="custom-client-model",
+        )
+        await plan_node_client(state, config)
+        assert mock_call.call_args.kwargs["model"] == "custom-client-model"
 
-    # 2. Plan node with fallback_model (e.g. localhost_byok with llama3.2)
-    plan_node_fallback = _build_plan_node(
-        api_key="fake_key",
-        state_container=state_container,
-        model=None,
-        fallback_model="llama3.2",
-    )
-    await plan_node_fallback(state, config)
-    assert mock_call.call_args.kwargs["model"] == "llama3.2"
+    # 2. Plan node with config set -> config overwrites client model!
+    with patch("rachel.config.PLAN_MODEL", "configured-plan-model"):
+        plan_node_config_overwrite = _build_plan_node(
+            api_key="fake_key",
+            state_container=state_container,
+            model="custom-client-model",
+            fallback_model="llama3.2",
+        )
+        await plan_node_config_overwrite(state, config)
+        assert mock_call.call_args.kwargs["model"] == "configured-plan-model"
 
-    # 3. Plan node with default (OpenRouter fallback to PLAN_MODEL)
-    plan_node_default = _build_plan_node(
-        api_key="fake_key",
-        state_container=state_container,
-        model=None,
-        fallback_model=None,
-    )
-    await plan_node_default(state, config)
-    assert mock_call.call_args.kwargs["model"] == PLAN_MODEL
+    # 3. Plan node with empty config and fallback_model (e.g. localhost_byok with llama3.2)
+    with patch("rachel.config.PLAN_MODEL", None):
+        plan_node_fallback = _build_plan_node(
+            api_key="fake_key",
+            state_container=state_container,
+            model=None,
+            fallback_model="llama3.2",
+        )
+        await plan_node_fallback(state, config)
+        assert mock_call.call_args.kwargs["model"] == "llama3.2"
 
-    # 4. Summary node with fallback_model
+    # 4. Plan node with empty config, no client model, no fallback -> defaults to deepseek v4.1 flash
+    with patch("rachel.config.PLAN_MODEL", None):
+        plan_node_default = _build_plan_node(
+            api_key="fake_key",
+            state_container=state_container,
+            model=None,
+            fallback_model=None,
+        )
+        await plan_node_default(state, config)
+        assert mock_call.call_args.kwargs["model"] == "deepseek/deepseek-v4.1-flash"
+
+    # 5. Summary node with config set -> config overwrites client model!
     mock_call.return_value = ("New summary text", [])
-    summary_node_fallback = _build_summary_node(
-        api_key="fake_key",
-        state_container=state_container,
-        model=None,
-        fallback_model="llama3.2",
-    )
-    await summary_node_fallback(state, config)
-    assert mock_call.call_args.kwargs["model"] == "llama3.2"
+    state_container["last_summary_turn"] = 0
+    with patch("rachel.config.SUMMARY_MODEL", "configured-summary-model"):
+        summary_node_config = _build_summary_node(
+            api_key="fake_key",
+            state_container=state_container,
+            model="custom-client-model",
+        )
+        await summary_node_config(state, config)
+        assert mock_call.call_args.kwargs["model"] == "configured-summary-model"
 
-    # 5. Cleanup node with explicit client model
+    # 6. Summary node with empty config and client model -> uses client model
+    state_container["last_summary_turn"] = 0
+    with patch("rachel.config.SUMMARY_MODEL", None):
+        summary_node_client = _build_summary_node(
+            api_key="fake_key",
+            state_container=state_container,
+            model="custom-client-model",
+        )
+        await summary_node_client(state, config)
+        assert mock_call.call_args.kwargs["model"] == "custom-client-model"
+
+    # 7. Summary node with empty config and fallback_model
+    state_container["last_summary_turn"] = 0
+    with patch("rachel.config.SUMMARY_MODEL", None):
+        summary_node_fallback = _build_summary_node(
+            api_key="fake_key",
+            state_container=state_container,
+            model=None,
+            fallback_model="llama3.2",
+        )
+        await summary_node_fallback(state, config)
+        assert mock_call.call_args.kwargs["model"] == "llama3.2"
+
+    # 8. Summary node with empty config, no client model, no fallback -> deepseek v4.1 flash
+    state_container["last_summary_turn"] = 0
+    with patch("rachel.config.SUMMARY_MODEL", None):
+        summary_node_default = _build_summary_node(
+            api_key="fake_key",
+            state_container=state_container,
+            model=None,
+            fallback_model=None,
+        )
+        await summary_node_default(state, config)
+        assert mock_call.call_args.kwargs["model"] == "deepseek/deepseek-v4.1-flash"
+
+    # 9. Cleanup node with config set -> config overwrites client model!
     mock_call.return_value = "state.x = 1;"
-    cleanup_node_explicit = _build_cleanup_node(
-        api_key="fake_key",
-        state_container=state_container,
-        sandbox_timeout=2.0,
-        model="custom-client-model",
-    )
-    await cleanup_node_explicit(state, config)
-    assert mock_call.call_args.kwargs["model"] == "custom-client-model"
+    state_container["last_cleanup_turn"] = 0
+    with patch("rachel.config.CLEANUP_MODEL", "configured-cleanup-model"):
+        cleanup_node_config = _build_cleanup_node(
+            api_key="fake_key",
+            state_container=state_container,
+            sandbox_timeout=2.0,
+            model="custom-client-model",
+        )
+        await cleanup_node_config(state, config)
+        assert mock_call.call_args.kwargs["model"] == "configured-cleanup-model"
+
+    # 10. Cleanup node with empty config and explicit client model -> uses client model
+    state_container["last_cleanup_turn"] = 0
+    with patch("rachel.config.CLEANUP_MODEL", None):
+        cleanup_node_explicit = _build_cleanup_node(
+            api_key="fake_key",
+            state_container=state_container,
+            sandbox_timeout=2.0,
+            model="custom-client-model",
+        )
+        await cleanup_node_explicit(state, config)
+        assert mock_call.call_args.kwargs["model"] == "custom-client-model"
+
+    # 11. Cleanup node with empty config, no client model, fallback_model
+    state_container["last_cleanup_turn"] = 0
+    with patch("rachel.config.CLEANUP_MODEL", None):
+        cleanup_node_fallback = _build_cleanup_node(
+            api_key="fake_key",
+            state_container=state_container,
+            sandbox_timeout=2.0,
+            model=None,
+            fallback_model="llama3.2",
+        )
+        await cleanup_node_fallback(state, config)
+        assert mock_call.call_args.kwargs["model"] == "llama3.2"
+
+    # 12. Cleanup node with empty config, no client model, no fallback -> deepseek v4.1 flash
+    state_container["last_cleanup_turn"] = 0
+    with patch("rachel.config.CLEANUP_MODEL", None):
+        cleanup_node_default = _build_cleanup_node(
+            api_key="fake_key",
+            state_container=state_container,
+            sandbox_timeout=2.0,
+            model=None,
+            fallback_model=None,
+        )
+        await cleanup_node_default(state, config)
+        assert mock_call.call_args.kwargs["model"] == "deepseek/deepseek-v4.1-flash"

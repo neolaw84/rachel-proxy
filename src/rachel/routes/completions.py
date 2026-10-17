@@ -407,7 +407,9 @@ async def proxy_chat_completions(
     model: str = client_model or default_model
 
     is_openrouter = active_provider in ("openrouter_byok", "openrouter_pkce")
-    fallback_orchestration_model: str | None = None if is_openrouter else default_model
+    fallback_orchestration_model: str | None = (
+        "deepseek/deepseek-v4.1-flash" if is_openrouter else default_model
+    )
 
     temperature: float | None = None
     if "temperature" in payload:
