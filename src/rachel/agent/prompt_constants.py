@@ -29,9 +29,15 @@ PROGRESS_STORY_TASK_NO_END_TURN = (
 )
 
 PROGRESS_AGENCY_INSTRUCTIONS_END_TURN = (
-    "  - **Respect user's agency:** As soon as you have enough story events and beats to complete the response for the current turn, immediately call `end_turn` tool to end the turn response and allow user to role-play/think/speak/act/react. If you do not call `end_turn`, user will not be able to provide additional input.\n"
+    "  - **Remember this is an interactive roleplay:** As soon as you have enough story events and beats to complete the response for the current turn, immediately call `end_turn` tool to end the turn response and allow user to role-play/think/speak/act/react. If you do not call `end_turn`, user will not be able to provide additional input.\n"
     "  - **Call `end_turn` tool ASAP:** After you have provided sufficient story/event/beats for the current turn, immediately call `end_turn` tool. If you have narrated enough for a turn but do not call `end_turn` tool, it will come back to you *without any user's input*. In such cases (i.e. you see a lot of assistant messages without user's input), do NOT continue narrating, just call `end_turn` tool with just an empty space as output."
 )
+
+# old one commented out
+# PROGRESS_AGENCY_INSTRUCTIONS_END_TURN = (
+#     "  - **Respect user's agency:** As soon as you have enough story events and beats to complete the response for the current turn, immediately call `end_turn` tool to end the turn response and allow user to role-play/think/speak/act/react. If you do not call `end_turn`, user will not be able to provide additional input.\n"
+#     "  - **Call `end_turn` tool ASAP:** After you have provided sufficient story/event/beats for the current turn, immediately call `end_turn` tool. If you have narrated enough for a turn but do not call `end_turn` tool, it will come back to you *without any user's input*. In such cases (i.e. you see a lot of assistant messages without user's input), do NOT continue narrating, just call `end_turn` tool with just an empty space as output."
+# )
 
 PROGRESS_AGENCY_INSTRUCTIONS_DIRECT = (
     "  - **Respect user's agency:** As soon as you have enough story events and beats to complete the response for the current turn, conclude your narrative response directly in plain text to allow user to role-play/think/speak/act/react.\n"

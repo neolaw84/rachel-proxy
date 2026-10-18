@@ -99,7 +99,7 @@ Settings for the narrative planner node that updates your story roadmap checklis
 * **`trigger_probability`**: Decimal. Trigger chance if `trigger_type` is probabilistic (default `0.10` or 10%).
 * **`initial_num_msgs_to_include`**: Integer. Number of initial non-system messages (after Message 0) preserved at the prefix of the outgoing messages stream (default `4`).
 * **`bundle_llm`**: **Deprecated/Removed**. All updates are now executed concurrently and synchronously prior to the narrative step using the node's own LLM settings (corresponding to `bundle_llm = false` behavior).
-* **`llm.model`**: Text. The fallback model for the planner on OpenRouter when the client request omits the `model` parameter (default `"google/gemini-3.5-flash"`). When the client specifies a model, that model is always used instead. For non-OpenRouter providers (e.g. Localhost / Ollama, OpenAI, DeepSeek), the planner automatically falls back to the provider's active default model (e.g. `llama3.2`).
+* **`llm.model`**: Text (or `null`). Model override for the story planner (default empty/`null`). When specified in config, it explicitly overwrites the model parameter from client requests for story planning. If empty (default), the planner uses the client request's `model`. If the client request also omits `model`, it falls back to a sensible default (`"deepseek/deepseek-v4.1-flash"` for OpenRouter, or the active provider's default model such as `"gpt-4o-mini"` for OpenAI).
 * **`llm.base_url`**: Text. Completion URL override for the planner model.
 * **`llm.include_reasoning`**: Boolean (`true`/`false`). Enable reasoning support for models that support it.
 * **`llm.temperature`**: Decimal. Model sampling temperature (default `0.2` for logical, factual checklists).
@@ -117,8 +117,21 @@ Settings for the summary node that compiles the rolling story recap:
 * **`bundle_llm`**: **Deprecated/Removed**. All updates are now executed concurrently and synchronously prior to the narrative step using the node's own LLM settings (corresponding to `bundle_llm = false` behavior).
 * **`summary_target_words`**: Integer. Target word length for the summary block (default `200` words).
 * **Summary Block Formatting**: Each incremental summary block is automatically stored and injected with the header prefix `Summary of Turn x to Turn y:\n<summary content>`, ensuring clear turn boundary context when referenced across turns and operating modes.
-* **`llm.model`**: Text. The fallback model for the summarizer on OpenRouter when the client request omits the `model` parameter (default `"google/gemini-3.5-flash"`). When the client specifies a model, that model is always used instead. For non-OpenRouter providers, it falls back to the active provider's default model.
+* **`llm.model`**: Text (or `null`). Model override for the summarizer (default empty/`null`). When specified in config, it explicitly overwrites the model parameter from client requests for summarization. If empty (default), the summarizer uses the client request's `model`. If the client request also omits `model`, it falls back to a sensible default (`"deepseek/deepseek-v4.1-flash"` for OpenRouter, or the active provider's default model).
 * **`llm.base_url`**: Text. Completion URL override for the summarizer model.
+* **`llm.include_reasoning`**: Boolean (`true`/`false`). Enable reasoning support.
+* **`llm.temperature`**: Decimal. Model sampling temperature (default `0.2`).
+
+### 🧹 3. State Cleanup Configuration (`orchestration.cleanup`)
+Settings for the background cleanup node that validates game state constraints and prunes obsolete entries:
+
+* **`trigger_type`**: Text (`"periodic"`, `"probabilistic"`, or `"disabled"`). Trigger mechanism.
+* **`interval_turns`**: Integer. Trigger frequency if `trigger_type` is periodic (default `8` turns).
+* **`trigger_probability`**: Decimal. Trigger chance if `trigger_type` is probabilistic (default `0.10` or 10%).
+* **`initial_num_msgs_to_include`**: Integer. Number of initial non-system messages preserved at the prefix of the outgoing messages stream (default `4`).
+* **`max_retries`**: Integer. Maximum retry attempts on validation or JavaScript execution errors (default `3`).
+* **`llm.model`**: Text (or `null`). Model override for the cleanup node (default empty/`null`). When specified in config, it explicitly overwrites the model parameter from client requests for state cleanup. If empty (default), the cleanup node uses the client request's `model`. If the client request also omits `model`, it falls back to a sensible default (`"deepseek/deepseek-v4.1-flash"` for OpenRouter, or the active provider's default model).
+* **`llm.base_url`**: Text. Completion URL override for cleanup model.
 * **`llm.include_reasoning`**: Boolean (`true`/`false`). Enable reasoning support.
 * **`llm.temperature`**: Decimal. Model sampling temperature (default `0.2`).
 

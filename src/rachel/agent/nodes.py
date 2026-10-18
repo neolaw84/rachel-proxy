@@ -466,7 +466,7 @@ def _build_summary_node(
             SUMMARY_TARGET_WORDS,
         )
 
-        target_model = model or fallback_model or SUMMARY_MODEL
+        target_model = SUMMARY_MODEL or model or fallback_model or "deepseek/deepseek-v4.1-flash"
 
         rpg = state_container["rpg_state"]
         current_turn = sum(1 for m in state["messages"] if isinstance(m, AIMessage)) + 1
@@ -635,7 +635,7 @@ def _build_plan_node(
             PLAN_INTERVAL_TURNS,
         )
 
-        target_model = model or fallback_model or PLAN_MODEL
+        target_model = PLAN_MODEL or model or fallback_model or "deepseek/deepseek-v4.1-flash"
 
         rpg = state_container["rpg_state"]
         current_turn = sum(1 for m in state["messages"] if isinstance(m, AIMessage)) + 1
@@ -918,7 +918,7 @@ def _build_cleanup_node(
         )
         from rachel.sandbox.validation import validate_state_constraints
 
-        target_model = model or fallback_model or CLEANUP_MODEL
+        target_model = CLEANUP_MODEL or model or fallback_model or "deepseek/deepseek-v4.1-flash"
 
         engine = get_sandbox_engine()
         rpg = state_container["rpg_state"]
