@@ -63,13 +63,12 @@ This gives users continuous visibility during long multi-step background tasks, 
 
 A **Turn** in RACHEL represents a single user message + assistant reply pair in the public chat history. RACHEL automatically calculates the turn numbers for the entire incoming history using a robust backward-propagating algorithm (`resolve_turn_numbers`):
 
-- **Turn 1**: Determined by the location of the *first user message* in the chat history.
-- **Unmutable Initial Sequence (`num_messages_with_unmutable_turn_number`)**: 
+- **Turn 1 & Initial Window (`num_messages_with_unmutable_turn_number`)**: 
   - RPG setups often start with system instructions or introductory assistant messages before the player's first input. 
-  - If a user message starts at index 0, Turn 1 starts at index 0. 
-  - If the first player (user) message starts at index 3, the initial messages at indices 0, 1, and 2 do not have a turn number assigned (`None`). Turn 1 starts at index 3.
+  - Messages before the first user message do not have a turn number assigned (`None`). For example, if the first user message is at index 3, indices 0, 1, and 2 resolve to `None`.
+  - Within the initial window (`num_messages_with_unmutable_turn_number`, default `4`), unannotated messages anchor starting at Turn 1. However, if a client trims early turns from the head of the message array (e.g., sending Turns 17–128), any non-user message in this window with a `store` entry or `[proxy: ... turn_number=X]` annotation preserves its explicit turn number and back-propagates it to its preceding user message.
 - **Backward Iteration**: 
-  Instead of resolving only the last message and subtracting 1 for each prior step (which fails under middle-out message trimming or consecutive same-role messages), RACHEL evaluates **every non-user message individually** by iterating backward from the end of the history:
+  Instead of resolving only the last message and subtracting 1 for each prior step (which fails under middle-out or head-trimmed message arrays, or consecutive same-role messages), RACHEL evaluates **every non-user message individually** by iterating backward from the end of the history:
   1. **Cache Lookup**: If the message contains a `turn_key`, it checks the database/session storage cache for the turn's `meta-data.turn_number`.
   2. **Annotation Parsing**: If it is a cache miss, it parses the `turn_number` directly from the text of the `[proxy: ... turn_number=X]` annotation block.
   3. **Message Count Fallback**: If neither is found (e.g. cold start), it counts the total number of user messages up to that message's index.
@@ -77,6 +76,9 @@ A **Turn** in RACHEL represents a single user message + assistant reply pair in 
   Once non-user messages are resolved, the user messages are filled:
   - For user message at index `k`, it copies the resolved turn number of the next non-user message (`k+1`).
   - If the user message is at the very end of history (a new player action), it takes the `last resolved turn + 1`.
+- **Resilience Under Head-Trimmed & Middle-Out Histories**:
+  - **Current Turn Resolution**: `llm_node`, `plan_node`, `summary_node`, and `cleanup_node` resolve `current_turn` from `state_container["current_turn"]` (the resolved turn number), falling back to `AIMessage` count + 1 only when `state_container["current_turn"]` is unavailable. This ensures `last_plan_turn`, `last_summary_turn`, and `last_cleanup_turn` stay accurate even when earlier turns are trimmed.
+  - **Turn-Window Slicing**: Both `_get_recent_turn_messages` (used by `plan`, `summary`, and `cleanup`) and `_filter_outgoing_messages_with_summary` (used by `llm_node` when `summary_replace_actual_history` is `true`) locate the boundary after `last_update_turn` / `last_summary_turn` by matching resolved `turn_numbers[i] > last_update_turn` (falling back to assistant-message counting only when `turn_numbers` is `None`). This handles both head-trimmed and middle-out histories without skipping turns.
 
 ---
 

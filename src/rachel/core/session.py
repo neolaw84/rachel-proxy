@@ -221,54 +221,64 @@ def resolve_turn_numbers(
     def count_user_messages_up_to(idx: int) -> int:
         return user_counts[idx]
 
+    # Helper: resolve explicit turn number from store or [proxy: ... turn_number=...]
+    def resolve_explicit_turn_number(msg: dict[str, Any]) -> int | None:
+        content = msg.get("content") or ""
+        match_key = _TURN_KEY_RE.search(content)
+        if match_key:
+            try:
+                meta = store.get_turn_metadata(match_key.group(1))
+                if meta and "turn_number" in meta:
+                    return int(meta["turn_number"])
+            except Exception:
+                pass
+        match_num = _TURN_NUMBER_RE.search(content)
+        if match_num:
+            return int(match_num.group(1))
+        return None
+
     # 2. Assign turn numbers for the first N unmutable messages
     # First user message is Turn 1. Everything before is None.
-    # Subsequent messages up to index num_messages_with_unmutable_turn_number-1 are Turn 1
-    # until a new user message is encountered.
+    # If an assistant message in the head range carries an explicit turn_number
+    # (e.g. head-trimmed history starting at Turn 17), preserve it instead of
+    # forcing Turn 1.
     limit = min(n, num_messages_with_unmutable_turn_number)
     current_turn = 1
     for i in range(first_user_idx, limit):
         if messages[i].get("role") == "user":
-            # Count how many user messages we've seen to update the turn number
             current_turn = count_user_messages_up_to(i)
-        resolved[i] = current_turn
+            resolved[i] = current_turn
+        else:
+            explicit_turn = resolve_explicit_turn_number(messages[i])
+            if explicit_turn is not None:
+                resolved[i] = explicit_turn
+                current_turn = explicit_turn
+            else:
+                resolved[i] = current_turn
 
     # 3. For messages after the limit, we iterate backward to resolve
     # We first resolve non-user messages, then fill in user messages.
     for i in range(n - 1, limit - 1, -1):
         msg = messages[i]
-        role = msg.get("role")
-        if role == "user":
+        if msg.get("role") == "user":
             continue
 
-        # Non-user message: search cache and annotations
-        turn_key = None
-        content = msg.get("content") or ""
-        # Extract turn key
-        match_key = _TURN_KEY_RE.search(content)
-        if match_key:
-            turn_key = match_key.group(1)
-
-        turn_num = None
-        if turn_key:
-            try:
-                meta = store.get_turn_metadata(turn_key)
-                if meta and "turn_number" in meta:
-                    turn_num = meta["turn_number"]
-            except Exception:
-                pass
-
-        if turn_num is None:
-            # Check annotation for turn_number
-            match_num = _TURN_NUMBER_RE.search(content)
-            if match_num:
-                turn_num = int(match_num.group(1))
-
+        turn_num = resolve_explicit_turn_number(msg)
         if turn_num is None:
             # Fallback to counting user messages up to this point
             turn_num = count_user_messages_up_to(i)
 
         resolved[i] = turn_num
+
+    # Back-propagate explicit turn numbers to head user messages (e.g. head-trimmed Turn 17 user)
+    for i in range(first_user_idx, limit):
+        if messages[i].get("role") != "user":
+            continue
+        for j in range(i + 1, n):
+            if messages[j].get("role") != "user" and resolved[j] is not None:
+                if resolved[j] > (resolved[i] or 0):
+                    resolved[i] = resolved[j]
+                break
 
     # Now, fill in the user messages after the limit.
     # For user messages, use the Turn Number assigned to their immediate next non-user message.

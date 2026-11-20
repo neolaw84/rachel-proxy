@@ -23,6 +23,7 @@ def setup_test_credentials(tmp_path, monkeypatch):
 
     mock_storage = MockStorage()
     monkeypatch.setattr("rachel.routes.completions.get_settings_storage", lambda *args, **kwargs: mock_storage)
+    monkeypatch.setattr("rachel.routes.completions.DEBUG_REQUEST_FILE", tmp_path / "debug-incoming-request.md")
 
 
 
@@ -90,6 +91,10 @@ def test_normal_flow_and_persistence(mock_run, client, auth_headers, tmp_path, e
             # Verify that state was written to disk
             store = get_session_storage(session_id, storage_dir=tmp_path)
             assert store.get_before_state(turn_key)["state"] == {"gold": 100}
+
+            # Verify that the incoming request debug dump is disabled by default
+            debug_file = tmp_path / "debug-incoming-request.md"
+            assert not debug_file.exists()
 
 
 @pytest.mark.parametrize("engine_name", ["v8"])

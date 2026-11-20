@@ -130,6 +130,7 @@ def test_localhost_byok_completion_dispatch_behavior(tmp_path, monkeypatch):
     storage.set_active_provider("localhost_byok")
     monkeypatch.setattr("rachel.routes.system.get_settings_storage", lambda *a, **kw: storage)
     monkeypatch.setattr("rachel.routes.completions.get_settings_storage", lambda *a, **kw: storage)
+    monkeypatch.setattr("rachel.routes.completions.DEBUG_REQUEST_FILE", tmp_path / "debug-incoming-request.md")
 
     mock_agent_result = {
         "content": "Local response",
