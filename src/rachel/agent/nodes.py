@@ -99,6 +99,47 @@ class _GraphDelegate:
         return await graph.call_openrouter_direct(*args, **kwargs)
 
 
+def _resolve_current_turn(state: "AgentState", state_container: dict[str, Any]) -> int:
+    """Return resolved current turn from state_container, falling back to AIMessage count."""
+    current_turn = state_container.get("current_turn")
+    if current_turn is not None:
+        return int(current_turn)
+    return sum(1 for m in state["messages"] if isinstance(m, AIMessage)) + 1
+
+
+def _find_post_turn_start_idx(
+    openai_msgs: list[dict],
+    first_idx: int,
+    end_idx: int,
+    last_update_turn: int,
+    turn_numbers: list[int | None] | None = None,
+) -> tuple[int, bool]:
+    """Find the start index in ``openai_msgs`` immediately after ``last_update_turn``.
+
+    When ``turn_numbers`` is provided, locates the first message whose resolved
+    turn number exceeds ``last_update_turn`` (supporting both head-trimmed and
+    middle-out histories). Falls back to counting assistant messages when
+    ``turn_numbers`` is unavailable.
+    """
+    if last_update_turn <= 0:
+        return first_idx, False
+
+    if turn_numbers is not None:
+        for i in range(first_idx, min(end_idx, len(turn_numbers))):
+            t_num = turn_numbers[i]
+            if t_num is not None and t_num > last_update_turn:
+                return i, True
+        return end_idx, True
+
+    asst_count = 0
+    for i in range(first_idx, end_idx):
+        if openai_msgs[i].get("role") == "assistant":
+            asst_count += 1
+            if asst_count == last_update_turn:
+                return i + 1, True
+    return first_idx, False
+
+
 def _get_recent_turn_messages(
     messages: Sequence[Any],
     last_update_turn: int,
@@ -126,16 +167,6 @@ def _get_recent_turn_messages(
         card_msg = dict(openai_msgs[0])
         first_idx = 1
 
-    start_idx = first_idx
-    if last_update_turn > 0:
-        asst_count = 0
-        for i in range(first_idx, len(openai_msgs)):
-            if openai_msgs[i].get("role") == "assistant":
-                asst_count += 1
-                if asst_count == last_update_turn:
-                    start_idx = i + 1
-                    break
-
     end_idx = len(openai_msgs)
     if not include_dangling_user:
         last_asst_idx = None
@@ -145,6 +176,14 @@ def _get_recent_turn_messages(
                 break
         if last_asst_idx is not None:
             end_idx = last_asst_idx + 1
+
+    start_idx, _ = _find_post_turn_start_idx(
+        openai_msgs,
+        first_idx=first_idx,
+        end_idx=end_idx,
+        last_update_turn=last_update_turn,
+        turn_numbers=turn_numbers,
+    )
 
     initial_end = min(first_idx + max(0, initial_num_msgs_to_include), len(openai_msgs))
     initial_indices = list(range(first_idx, initial_end))
@@ -168,6 +207,7 @@ def _filter_outgoing_messages_with_summary(
     last_summary_turn: int,
     initial_num_msgs_to_include: int = 4,
     last_num_msgs_to_include: int = 4,
+    turn_numbers: list[int | None] | None = None,
 ) -> list[dict]:
     """Filter outgoing OpenAI messages for Progress mode when summary_replace_actual_history is True.
 
@@ -187,21 +227,18 @@ def _filter_outgoing_messages_with_summary(
         card_msg = dict(openai_msgs[0])
         first_idx = 1
 
-    start_idx = first_idx
-    asst_count = 0
-    found_summary_boundary = False
-    for i in range(first_idx, len(openai_msgs)):
-        if openai_msgs[i].get("role") == "assistant":
-            asst_count += 1
-            if asst_count == last_summary_turn:
-                start_idx = i + 1
-                found_summary_boundary = True
-                break
+    end_idx = len(openai_msgs)
+    start_idx, found_summary_boundary = _find_post_turn_start_idx(
+        openai_msgs,
+        first_idx=first_idx,
+        end_idx=end_idx,
+        last_update_turn=last_summary_turn,
+        turn_numbers=turn_numbers,
+    )
 
     if not found_summary_boundary:
         return openai_msgs
 
-    end_idx = len(openai_msgs)
     initial_end = min(first_idx + max(0, initial_num_msgs_to_include), end_idx)
     initial_indices = list(range(first_idx, initial_end))
     post_summary_indices = list(range(start_idx, end_idx)) if start_idx < end_idx else []
@@ -254,7 +291,7 @@ def _build_llm_node(
         # 1. Generate Static System Prompt and Dynamic Turn Directive
         rem_iterations = max(0, max_iterations - state["iteration_count"] - 1)
         current_rpg_state = state_container.get("rpg_state", {})
-        turn_number = sum(1 for m in state["messages"] if isinstance(m, AIMessage)) + 1
+        turn_number = _resolve_current_turn(state, state_container)
 
         session_id = config.get("configurable", {}).get("session_id") or state_container.get("session_id")
         session_kwargs = {}
@@ -328,6 +365,7 @@ def _build_llm_node(
                 last_summary_turn=last_summary_turn,
                 initial_num_msgs_to_include=initial_k,
                 last_num_msgs_to_include=last_k,
+                turn_numbers=state_container.get("turn_numbers"),
             )
 
         # Append static system prompt to Message 0 (or insert at index 0 if not system)
@@ -469,7 +507,7 @@ def _build_summary_node(
         target_model = SUMMARY_MODEL or model or fallback_model or "deepseek/deepseek-v4.1-flash"
 
         rpg = state_container["rpg_state"]
-        current_turn = sum(1 for m in state["messages"] if isinstance(m, AIMessage)) + 1
+        current_turn = _resolve_current_turn(state, state_container)
         last_summary_turn = state_container.get("last_summary_turn", 0)
 
         # Completed turns arithmetic: from last_summary_turn + 1 to current_turn - 1
@@ -638,7 +676,7 @@ def _build_plan_node(
         target_model = PLAN_MODEL or model or fallback_model or "deepseek/deepseek-v4.1-flash"
 
         rpg = state_container["rpg_state"]
-        current_turn = sum(1 for m in state["messages"] if isinstance(m, AIMessage)) + 1
+        current_turn = _resolve_current_turn(state, state_container)
         last_plan_turn = state_container.get("last_plan_turn", 0)
 
         session_id = config.get("configurable", {}).get("session_id") or state_container.get("session_id")
@@ -922,7 +960,7 @@ def _build_cleanup_node(
 
         engine = get_sandbox_engine()
         rpg = state_container["rpg_state"]
-        current_turn = sum(1 for m in state["messages"] if isinstance(m, AIMessage)) + 1
+        current_turn = _resolve_current_turn(state, state_container)
         last_cleanup_turn = state_container.get("last_cleanup_turn", 0)
 
         session_id = config.get("configurable", {}).get("session_id") or state_container.get("session_id")

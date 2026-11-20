@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json as _json
 import logging
+from pathlib import Path
 import time as _time
 from typing import Any
 
@@ -39,10 +40,29 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["completions"])
 
+DEBUG_REQUEST_DUMP_ENABLED: bool = False
+DEBUG_REQUEST_FILE: Path = (
+    Path(__file__).resolve().parent.parent.parent.parent / "docs" / "debug-incoming-request.md"
+)
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+def _dump_debug_request(payload: dict[str, Any]) -> None:
+    """Write the incoming chat completion JSON request body verbatim to DEBUG_REQUEST_FILE."""
+    if not DEBUG_REQUEST_DUMP_ENABLED:
+        return
+    try:
+        DEBUG_REQUEST_FILE.parent.mkdir(parents=True, exist_ok=True)
+        DEBUG_REQUEST_FILE.write_text(
+            _json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+    except Exception as exc:
+        logger.warning("Failed to write debug incoming request to %s: %s", DEBUG_REQUEST_FILE, exc)
+
 
 def _get_active_provider_config(tenant_id: str = "local") -> tuple[str, str, str, str]:
     """Retrieve active provider configuration and credentials from SettingsStorage for given tenant."""
@@ -396,6 +416,7 @@ async def proxy_chat_completions(
         "Received chat completion payload from client:\n%s",
         _json.dumps(payload, indent=2, ensure_ascii=False),
     )
+    _dump_debug_request(payload)
 
     messages: list[dict] = payload.get("messages", [])
     # Forward model verbatim if present in request (body or headers); fallback to active provider default model if missing
