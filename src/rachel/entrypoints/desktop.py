@@ -67,6 +67,7 @@ def create_desktop_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=[
             "https://janitorai.com",
+            "https://jani.com",
             "https://app.wyvern.chat",
             "https://app.wyvern.chat/sim",
             "https://wyvern.chat",
