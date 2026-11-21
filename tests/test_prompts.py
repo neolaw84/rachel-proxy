@@ -419,6 +419,329 @@ async def test_llm_node_remaining_iterations(mock_streaming):
         assert kwargs["current_iteration"] == 5
 
 
+def test_extract_turn_specific_instructions_default_placement():
+    from rachel.agent.prompts import extract_turn_specific_instructions
+
+    # All 3 tags in standard order
+    sys_msg = (
+        "Base rules.\n\n"
+        "<Dungeon Master's Persona>You quote literature.</Dungeon Master's Persona>\n"
+        "<Scenario>A dev debugs you.</Scenario>\n"
+        "<example_dialogs>User: hi\nDM: hello</example_dialogs>\n"
+        "DM roll dice and it is 18."
+    )
+    cleaned, extracted = extract_turn_specific_instructions(sys_msg)
+    assert cleaned == (
+        "Base rules.\n\n"
+        "<Dungeon Master's Persona>You quote literature.</Dungeon Master's Persona>\n"
+        "<Scenario>A dev debugs you.</Scenario>\n"
+        "<example_dialogs>User: hi\nDM: hello</example_dialogs>"
+    )
+    assert extracted == ["DM roll dice and it is 18."]
+
+    # Subset of tags in non-standard order (e.g. Scenario last, no example_dialogs)
+    sys_msg_reordered = (
+        "<Dungeon Master's Persona>Persona text.</Dungeon Master's Persona>\n"
+        "<Scenario>Scenario text.</Scenario>\n\n"
+        "Default trailing instruction."
+    )
+    cleaned2, extracted2 = extract_turn_specific_instructions(sys_msg_reordered)
+    assert cleaned2 == (
+        "<Dungeon Master's Persona>Persona text.</Dungeon Master's Persona>\n"
+        "<Scenario>Scenario text.</Scenario>"
+    )
+    assert extracted2 == ["Default trailing instruction."]
+
+
+def test_extract_turn_specific_instructions_tagged_and_combined():
+    from rachel.agent.prompts import extract_turn_specific_instructions
+
+    static_card = (
+        "<Dungeon Master's Persona>You quote literature randomly.</Dungeon Master's Persona>\n"
+        "<Scenario>A dev debugs you.</Scenario>\n"
+        "<example_dialogs>User: hi</example_dialogs>"
+    )
+    dynamic_card = (
+        "<Dungeon Master's Persona>[RACHEL-TURN-SPECIFIC-INSTRUCTIONS]\nBefore persona.\n[/RACHEL-TURN-SPECIFIC-INSTRUCTIONS]\n\n"
+        "You quote literature randomly.\n\n"
+        "[RACHEL-TURN-SPECIFIC-INSTRUCTIONS]After persona.[/RACHEL-TURN-SPECIFIC-INSTRUCTIONS]</Dungeon Master's Persona>\n"
+        "<Scenario>A dev debugs you.\n\n"
+        "[RACHEL-TURN-SPECIFIC-INSTRUCTIONS]After scenario.[/RACHEL-TURN-SPECIFIC-INSTRUCTIONS]</Scenario>\n"
+        "<example_dialogs>User: hi</example_dialogs>\n"
+        "Default trailing."
+    )
+    cleaned, extracted = extract_turn_specific_instructions(dynamic_card)
+    assert cleaned == static_card
+    assert extracted == [
+        "Before persona.",
+        "After persona.",
+        "After scenario.",
+        "Default trailing.",
+    ]
+
+
+def test_extract_turn_specific_instructions_no_tags_or_empty():
+    from rachel.agent.prompts import extract_turn_specific_instructions
+
+    assert extract_turn_specific_instructions("") == ("", [])
+    plain = "Just a plain system prompt without Janitor tags."
+    assert extract_turn_specific_instructions(plain) == (plain, [])
+
+
+def test_get_dynamic_turn_directive_includes_turn_specific_instructions():
+    from rachel.agent.prompts import get_dynamic_turn_directive
+
+    directive = get_dynamic_turn_directive(
+        rpg_state={"state": {}, "hidden_state": {}, "summary": "", "plan": []},
+        max_iterations=4,
+        current_iteration=1,
+        rem_iterations=3,
+        turn_number=7,
+        turn_specific_instructions=["First rule.", "Second rule."],
+    )
+    expected_block = "## Turn-specific Instructions for Turn 7\n\nFirst rule.\nSecond rule.\n\n## Current Variables"
+    assert expected_block in directive
+
+    # Without turn_specific_instructions, header should not appear
+    directive_empty = get_dynamic_turn_directive(
+        rpg_state={"state": {}, "hidden_state": {}, "summary": "", "plan": []},
+        max_iterations=4,
+        current_iteration=1,
+        rem_iterations=3,
+        turn_number=7,
+    )
+    assert "## Turn-specific Instructions" not in directive_empty
+
+
+@pytest.mark.asyncio
+async def test_llm_node_moves_turn_specific_instructions_to_user_message():
+    from langchain_core.messages import HumanMessage, SystemMessage
+    from langchain_core.runnables import RunnableConfig
+    from rachel.agent.nodes import AgentState, _build_llm_node
+
+    captured_messages = []
+
+    async def fake_stream(**kwargs):
+        captured_messages.append(kwargs["openai_messages"])
+        return "Narration", "", []
+
+    sys_content = (
+        "<Dungeon Master's Persona>[RACHEL-TURN-SPECIFIC-INSTRUCTIONS]Tagged rule.[/RACHEL-TURN-SPECIFIC-INSTRUCTIONS]\n\n"
+        "Static persona.</Dungeon Master's Persona>\n"
+        "<Scenario>Static scenario.</Scenario>\n"
+        "Default rule."
+    )
+    messages = [
+        SystemMessage(content=sys_content),
+        HumanMessage(content="I look around."),
+    ]
+    llm_node_fn = _build_llm_node(
+        api_key="fake",
+        base_url="fake",
+        model="fake",
+        max_iterations=4,
+        sandbox_timeout=2.0,
+        state_container={"turn_numbers": [None, 1], "current_turn": 1},
+    )
+    config: RunnableConfig = {"configurable": {}}
+    state: AgentState = {
+        "messages": messages,
+        "rpg_state": {},
+        "sandbox_timeout": 2.0,
+        "iteration_count": 0,
+    }
+
+    with patch("rachel.agent.graph.call_openrouter_streaming", side_effect=fake_stream):
+        await llm_node_fn(state, config)
+
+    assert len(captured_messages) == 1
+    out_msgs = captured_messages[0]
+    assert out_msgs[0]["role"] == "system"
+    assert "[RACHEL-TURN-SPECIFIC-INSTRUCTIONS]" not in out_msgs[0]["content"]
+    assert "Tagged rule." not in out_msgs[0]["content"]
+    assert "Default rule." not in out_msgs[0]["content"]
+    assert "<Dungeon Master's Persona>Static persona.</Dungeon Master's Persona>\n<Scenario>Static scenario.</Scenario>" in out_msgs[0]["content"]
+
+    assert out_msgs[-1]["role"] == "user"
+    assert "## Turn-specific Instructions for Turn 1\n\nTagged rule.\nDefault rule.\n\n## Current Variables" in out_msgs[-1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_llm_node_skips_turn_specific_extraction_when_disabled():
+    from langchain_core.messages import HumanMessage, SystemMessage
+    from langchain_core.runnables import RunnableConfig
+    from rachel.agent.nodes import AgentState, _build_llm_node
+
+    captured_messages = []
+
+    async def fake_stream(**kwargs):
+        captured_messages.append(kwargs["openai_messages"])
+        return "Narration", "", []
+
+    sys_content = (
+        "<Dungeon Master's Persona>Static persona.</Dungeon Master's Persona>\n"
+        "<Scenario>Static scenario.</Scenario>\n"
+        "Default rule."
+    )
+    messages = [
+        SystemMessage(content=sys_content),
+        HumanMessage(content="I look around."),
+    ]
+    llm_node_fn = _build_llm_node(
+        api_key="fake",
+        base_url="fake",
+        model="fake",
+        max_iterations=4,
+        sandbox_timeout=2.0,
+        state_container={"turn_numbers": [None, 1], "current_turn": 1},
+    )
+    config: RunnableConfig = {"configurable": {}}
+    state: AgentState = {
+        "messages": messages,
+        "rpg_state": {},
+        "sandbox_timeout": 2.0,
+        "iteration_count": 0,
+    }
+
+    with patch("rachel.config.JANITORAI_LOREBOOK_KV_CACHE_OPTIMIZATION", False), \
+         patch("rachel.agent.graph.call_openrouter_streaming", side_effect=fake_stream):
+        await llm_node_fn(state, config)
+
+    out_msgs = captured_messages[0]
+    assert "Default rule." in out_msgs[0]["content"]
+    assert "## Turn-specific Instructions" not in out_msgs[-1]["content"]
+
+
+
+
+
+
+def test_extract_turn_specific_instructions_tagged_and_combined():
+    from rachel.agent.prompts import extract_turn_specific_instructions
+
+    static_card = (
+        "<Dungeon Master's Persona>You quote literature randomly.</Dungeon Master's Persona>\n"
+        "<Scenario>A dev debugs you.</Scenario>\n"
+        "<example_dialogs>User: hi</example_dialogs>"
+    )
+    dynamic_card = (
+        "<Dungeon Master's Persona>[RACHEL-TURN-SPECIFIC-INSTRUCTIONS]\nBefore persona.\n[/RACHEL-TURN-SPECIFIC-INSTRUCTIONS]\n\n"
+        "You quote literature randomly.\n\n"
+        "[RACHEL-TURN-SPECIFIC-INSTRUCTIONS]After persona.[/RACHEL-TURN-SPECIFIC-INSTRUCTIONS]</Dungeon Master's Persona>\n"
+        "<Scenario>A dev debugs you.\n\n"
+        "[RACHEL-TURN-SPECIFIC-INSTRUCTIONS]After scenario.[/RACHEL-TURN-SPECIFIC-INSTRUCTIONS]</Scenario>\n"
+        "<example_dialogs>User: hi</example_dialogs>\n"
+        "Default trailing."
+    )
+    cleaned, extracted = extract_turn_specific_instructions(dynamic_card)
+    assert cleaned == static_card
+    assert extracted == [
+        "Before persona.",
+        "After persona.",
+        "After scenario.",
+        "Default trailing.",
+    ]
+
+
+def test_extract_turn_specific_instructions_no_tags_or_empty():
+    from rachel.agent.prompts import extract_turn_specific_instructions
+
+    assert extract_turn_specific_instructions("") == ("", [])
+    plain = "Just a plain system prompt without Janitor tags."
+    assert extract_turn_specific_instructions(plain) == (plain, [])
+
+
+def test_get_dynamic_turn_directive_includes_turn_specific_instructions():
+    from rachel.agent.prompts import get_dynamic_turn_directive
+
+    directive = get_dynamic_turn_directive(
+        rpg_state={"state": {}, "hidden_state": {}, "summary": "", "plan": []},
+        max_iterations=4,
+        current_iteration=1,
+        rem_iterations=3,
+        turn_number=7,
+        turn_specific_instructions=["First rule.", "Second rule."],
+    )
+    expected_block = "## Turn-specific Instructions for Turn 7\n\nFirst rule.\nSecond rule.\n\n## Current Variables"
+    assert expected_block in directive
+
+    # Without turn_specific_instructions, header should not appear
+    directive_empty = get_dynamic_turn_directive(
+        rpg_state={"state": {}, "hidden_state": {}, "summary": "", "plan": []},
+        max_iterations=4,
+        current_iteration=1,
+        rem_iterations=3,
+        turn_number=7,
+    )
+    assert "## Turn-specific Instructions" not in directive_empty
+
+
+@pytest.mark.asyncio
+async def test_llm_node_moves_turn_specific_instructions_to_user_message():
+    from langchain_core.messages import HumanMessage, SystemMessage
+    from langchain_core.runnables import RunnableConfig
+    from rachel.agent.nodes import AgentState, _build_llm_node
+
+    captured_messages = []
+
+    async def fake_stream(**kwargs):
+        captured_messages.append(kwargs["openai_messages"])
+        return "Narration", "", []
+
+    sys_content = (
+        "<Dungeon Master's Persona>[RACHEL-TURN-SPECIFIC-INSTRUCTIONS]Tagged rule.[/RACHEL-TURN-SPECIFIC-INSTRUCTIONS]\n\n"
+        "Static persona.</Dungeon Master's Persona>\n"
+        "<Scenario>Static scenario.</Scenario>\n"
+        "Default rule."
+    )
+    messages = [
+        SystemMessage(content=sys_content),
+        HumanMessage(content="I look around."),
+    ]
+    llm_node_fn = _build_llm_node(
+        api_key="fake",
+        base_url="fake",
+        model="fake",
+        max_iterations=4,
+        sandbox_timeout=2.0,
+        state_container={"turn_numbers": [None, 1], "current_turn": 1},
+    )
+    config: RunnableConfig = {"configurable": {}}
+    state: AgentState = {
+        "messages": messages,
+        "rpg_state": {},
+        "sandbox_timeout": 2.0,
+        "iteration_count": 0,
+    }
+
+    with patch("rachel.agent.graph.call_openrouter_streaming", side_effect=fake_stream):
+        await llm_node_fn(state, config)
+
+    assert len(captured_messages) == 1
+    out_msgs = captured_messages[0]
+    assert out_msgs[0]["role"] == "system"
+    assert "[RACHEL-TURN-SPECIFIC-INSTRUCTIONS]" not in out_msgs[0]["content"]
+    assert "Tagged rule." not in out_msgs[0]["content"]
+    assert "Default rule." not in out_msgs[0]["content"]
+    assert "<Dungeon Master's Persona>Static persona.</Dungeon Master's Persona>\n<Scenario>Static scenario.</Scenario>" in out_msgs[0]["content"]
+
+    assert out_msgs[-1]["role"] == "user"
+    assert "## Turn-specific Instructions for Turn 1\n\nTagged rule.\nDefault rule.\n\n## Current Variables" in out_msgs[-1]["content"]
+
+
+
+
+
+
+    with patch("rachel.config.JANITORAI_LOREBOOK_KV_CACHE_OPTIMIZATION", False), \
+         patch("rachel.agent.graph.call_openrouter_streaming", side_effect=fake_stream):
+        await llm_node_fn(state, config)
+
+    out_msgs = captured_messages[0]
+    assert "Default rule." in out_msgs[0]["content"]
+    assert "## Turn-specific Instructions" not in out_msgs[-1]["content"]
+
+
 
 
 

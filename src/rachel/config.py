@@ -138,6 +138,14 @@ else:
     val = _llm_cfg.get("include_reasoning")
     INCLUDE_REASONING = True if val is None else bool(val)
 
+_janitor_kv_opt = _llm_cfg.get(
+    "janitorai_lorebook_kv_cache_optimization",
+    _cfg.get("janitorai_lorebook_kv_cache_optimization"),
+)
+JANITORAI_LOREBOOK_KV_CACHE_OPTIMIZATION: bool = (
+    True if _janitor_kv_opt is None else bool(_janitor_kv_opt)
+)
+
 REASONING_FORMAT = _llm_cfg.get("reasoning_format") or "Open-Router"
 
 if REASONING_FORMAT.lower() == "custom":

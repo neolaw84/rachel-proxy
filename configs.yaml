@@ -38,6 +38,8 @@ llm:
   default_model: "google/gemini-3.5-flash"
   # Whether to explicitly request reasoning (useful for OpenRouter).
   include_reasoning: true
+  # Move Janitor AI turn-specific instructions from Message 0 to the last user message to preserve KV-cache.
+  janitorai_lorebook_kv_cache_optimization: true
   # Optional reasoning format. Supported: Open-Router, OpenAI, Gemini, Anthropic, X.AI, Z.AI, DeepSeek, custom.
   # Defaults to "Open-Router".
   # reasoning_format: "Open-Router"

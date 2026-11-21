@@ -11,6 +11,7 @@ from langgraph.graph import END
 from langgraph.graph.message import add_messages
 
 from rachel.agent.prompts import (
+    extract_turn_specific_instructions,
     get_static_system_prompt,
     get_dynamic_turn_directive,
     get_summary_prompt,
@@ -274,6 +275,24 @@ class AgentState(TypedDict):
     sandbox_timeout: float
     iteration_count: int
 
+def _apply_static_system_prompt(msgs: list[dict], static_prompt: str) -> list[str]:
+    """Strip turn-specific instructions from Message 0 (if enabled) and append ``static_prompt``.
+
+    Returns the extracted turn-specific instructions in order of appearance.
+    """
+    if msgs and msgs[0].get("role") == "system":
+        orig_sys = msgs[0].get("content") or ""
+        from rachel import config as _rachel_config
+        if getattr(_rachel_config, "JANITORAI_LOREBOOK_KV_CACHE_OPTIMIZATION", True):
+            cleaned_sys, turn_specific_instructions = extract_turn_specific_instructions(orig_sys)
+        else:
+            cleaned_sys, turn_specific_instructions = orig_sys, []
+        msgs[0]["content"] = f"{cleaned_sys}\n\n---\n{static_prompt}".strip()
+        return turn_specific_instructions
+    msgs.insert(0, {"role": "system", "content": static_prompt})
+    return []
+
+
 def _build_llm_node(
     api_key: str,
     base_url: str,
@@ -311,16 +330,6 @@ def _build_llm_node(
 
         static_prompt = _GraphDelegate.get_static_system_prompt(
             sandbox_timeout=sandbox_timeout,
-            include_end_turn=include_end_turn,
-        )
-
-        dynamic_directive = _GraphDelegate.get_dynamic_turn_directive(
-            rpg_state=current_rpg_state,
-            max_iterations=max_iterations,
-            current_iteration=state["iteration_count"] + 1,
-            rem_iterations=rem_iterations,
-            messages=state["messages"],
-            turn_number=turn_number,
             include_end_turn=include_end_turn,
         )
 
@@ -368,12 +377,19 @@ def _build_llm_node(
                 turn_numbers=state_container.get("turn_numbers"),
             )
 
-        # Append static system prompt to Message 0 (or insert at index 0 if not system)
-        if openai_msgs and openai_msgs[0].get("role") == "system":
-            orig_sys = openai_msgs[0].get("content") or ""
-            openai_msgs[0]["content"] = f"{orig_sys}\n\n---\n{static_prompt}".strip()
-        else:
-            openai_msgs.insert(0, {"role": "system", "content": static_prompt})
+        # Strip turn-specific instructions from Message 0 and append static system prompt
+        turn_specific_instructions = _apply_static_system_prompt(openai_msgs, static_prompt)
+
+        dynamic_directive = _GraphDelegate.get_dynamic_turn_directive(
+            rpg_state=current_rpg_state,
+            max_iterations=max_iterations,
+            current_iteration=state["iteration_count"] + 1,
+            rem_iterations=rem_iterations,
+            messages=state["messages"],
+            turn_number=turn_number,
+            include_end_turn=include_end_turn,
+            turn_specific_instructions=turn_specific_instructions,
+        )
 
         # In Round 1 (iteration 0): construct and cache the user message with dynamic turn directive
         if state["iteration_count"] == 0:
@@ -574,11 +590,7 @@ def _build_summary_node(
             end_turn=end_summary_turn,
         )
 
-        if history_msgs and history_msgs[0].get("role") == "system":
-            orig_sys = history_msgs[0].get("content") or ""
-            history_msgs[0]["content"] = f"{orig_sys}\n\n---\n{static_prompt}".strip()
-        else:
-            history_msgs.insert(0, {"role": "system", "content": static_prompt})
+        _apply_static_system_prompt(history_msgs, static_prompt)
 
         if history_msgs and history_msgs[-1].get("role") == "user":
             orig_user = history_msgs[-1].get("content") or ""
@@ -742,11 +754,7 @@ def _build_plan_node(
         )
 
 
-        if history_msgs and history_msgs[0].get("role") == "system":
-            orig_sys = history_msgs[0].get("content") or ""
-            history_msgs[0]["content"] = f"{orig_sys}\n\n---\n{static_prompt}".strip()
-        else:
-            history_msgs.insert(0, {"role": "system", "content": static_prompt})
+        _apply_static_system_prompt(history_msgs, static_prompt)
 
         if history_msgs and history_msgs[-1].get("role") == "user":
             orig_user = history_msgs[-1].get("content") or ""
@@ -1004,11 +1012,7 @@ def _build_cleanup_node(
             engine_name=engine.name,
         )
 
-        if history_msgs and history_msgs[0].get("role") == "system":
-            orig_sys = history_msgs[0].get("content") or ""
-            history_msgs[0]["content"] = f"{orig_sys}\n\n---\n{static_prompt}".strip()
-        else:
-            history_msgs.insert(0, {"role": "system", "content": static_prompt})
+        _apply_static_system_prompt(history_msgs, static_prompt)
 
         if history_msgs and history_msgs[-1].get("role") == "user":
             orig_user = history_msgs[-1].get("content") or ""

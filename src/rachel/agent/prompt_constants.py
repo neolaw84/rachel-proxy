@@ -169,6 +169,7 @@ STATIC_SYSTEM_INSTRUCTION_TEMPLATE = (
 DYNAMIC_TURN_DIRECTIVE_TEMPLATE = (
     "# [Agentic Roleplay AI System Mode: **Progress**]\n\n"
     "{tasks_block}\n\n"
+    "{turn_specific_section}"
     "## Current Variables\n\n"
     "The current and most updated variables "
     "(i.e. updated states of `state` and `hidden-state` "

@@ -179,6 +179,53 @@ def _format_notes_for_prompt(notes: list | None) -> str:
     return "\n".join(notes_lines) if notes_lines else "[No active notes]"
 
 
+_TAGGED_TSI_RE = re.compile(
+    r"(?:(?:\r?\n){2})?\[RACHEL-TURN-SPECIFIC-INSTRUCTIONS\](.*?)\[/RACHEL-TURN-SPECIFIC-INSTRUCTIONS\](?:(?:\r?\n){2})?",
+    re.DOTALL,
+)
+_JANITOR_END_TAG_RE = re.compile(
+    r"</(?:[^>\r\n]+['’]s Persona|Scenario|example_dialogs)>",
+    re.IGNORECASE,
+)
+
+
+def extract_turn_specific_instructions(system_content: str) -> tuple[str, list[str]]:
+    """Pluck Janitor AI turn-specific instructions from the system message.
+
+    Extracts:
+    1. All ``[RACHEL-TURN-SPECIFIC-INSTRUCTIONS]...[/RACHEL-TURN-SPECIFIC-INSTRUCTIONS]``
+       blocks anywhere in ``system_content`` (removing optional surrounding ``\\n\\n``
+       so the static prefix remains byte-identical for KV-caching).
+    2. Any trailing text after the last closing tag among
+       ``</...'s Persona>``, ``</Scenario>``, or ``</example_dialogs>``
+       (Janitor AI's Default placement, regardless of tag presence or order).
+
+    Returns ``(cleaned_system_content, extracted_instructions)`` in order of appearance.
+    """
+    if not system_content:
+        return "", []
+
+    extracted: list[str] = []
+
+    def _collect_tagged(match: re.Match[str]) -> str:
+        inner = match.group(1).strip()
+        if inner:
+            extracted.append(inner)
+        return ""
+
+    cleaned = _TAGGED_TSI_RE.sub(_collect_tagged, system_content)
+
+    end_matches = list(_JANITOR_END_TAG_RE.finditer(cleaned))
+    if end_matches:
+        last_end = end_matches[-1].end()
+        trailing = cleaned[last_end:].strip()
+        cleaned = cleaned[:last_end]
+        if trailing:
+            extracted.append(trailing)
+
+    return cleaned, extracted
+
+
 def get_dynamic_turn_directive(
     rpg_state: Any,
     max_iterations: int,
@@ -187,6 +234,7 @@ def get_dynamic_turn_directive(
     messages: Sequence[BaseMessage] = (),
     turn_number: int = 1,
     include_end_turn: bool = True,
+    turn_specific_instructions: Sequence[str] | None = None,
 ) -> str:
     """Return the dynamic turn directive block appended to the last user message."""
     # 1. Build tasks list
@@ -197,7 +245,18 @@ def get_dynamic_turn_directive(
     tasks_block = "\n".join(tasks_formatted)
     task_word = "task"
 
-    # 2. Format state sections
+    # 2. Format optional turn-specific instructions
+    cleaned_tsi = [t.strip() for t in (turn_specific_instructions or ()) if t and t.strip()]
+    if cleaned_tsi:
+        joined_tsi = "\n".join(cleaned_tsi)
+        turn_specific_section = (
+            f"## Turn-specific Instructions for Turn {turn_number}\n\n"
+            f"{joined_tsi}\n\n"
+        )
+    else:
+        turn_specific_section = ""
+
+    # 3. Format state sections
     rpg_dict = rpg_state if isinstance(rpg_state, dict) else {}
     notes_formatted = _format_notes_for_prompt(rpg_dict.get("notes", []))
     state_section = STATE_SECTION_TEMPLATE.format(
@@ -214,6 +273,7 @@ def get_dynamic_turn_directive(
         total_tasks=total_tasks,
         task_word=task_word,
         tasks_block=tasks_block,
+        turn_specific_section=turn_specific_section,
         state_section=state_section,
         max_iterations=max_iterations,
         current_iteration=current_iteration,
