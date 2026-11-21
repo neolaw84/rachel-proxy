@@ -14,12 +14,18 @@ AUTH_HEADERS = {"Authorization": f"Bearer {PROXY_API_KEY}"}
 
 
 def test_cors_headers():
-    # JanitorAI origin
+    # JanitorAI origins
     res = client.options(
         "/v1/chat/completions",
         headers={"Origin": "https://janitorai.com", "Access-Control-Request-Method": "POST"}
     )
     assert res.headers.get("access-control-allow-origin") == "https://janitorai.com"
+
+    res_jani = client.options(
+        "/v1/chat/completions",
+        headers={"Origin": "https://jani.com", "Access-Control-Request-Method": "POST"}
+    )
+    assert res_jani.headers.get("access-control-allow-origin") == "https://jani.com"
 
     # Wyvern origin
     res_wyvern = client.options(

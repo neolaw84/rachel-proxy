@@ -51,8 +51,8 @@ llm:
 # Configuration for plan and summary updates
 orchestration:
   plan_offset: 2
-  plan_summary_gap: 12
-  plan_cleanup_gap: 13
+  plan_summary_gap: 16
+  plan_cleanup_gap: 17
   progress:
     summary_replace_actual_history: false
     initial_num_msgs_to_include: 16
@@ -60,7 +60,7 @@ orchestration:
   plan:
     # Trigger configurations: "periodic", "probabilistic", or "disabled"
     trigger_type: "periodic"
-    interval_turns:  12              # k = 10 turns
+    interval_turns:  16              # k = 10 turns
     trigger_probability: 0.10       # p = 0.10
     bundle_llm: true                # If true, runs inline using main LLM tool calls. If false, runs in separate node.
     initial_num_msgs_to_include: 4
@@ -74,7 +74,7 @@ orchestration:
   summary:
     # Trigger configurations: "periodic", "probabilistic", or "disabled"
     trigger_type: "periodic"
-    interval_turns:  12              # k = 10 turns
+    interval_turns:  16              # k = 10 turns
     trigger_probability: 0.10       # p = 0.10
     bundle_llm: true                # If true, runs inline using main LLM tool calls. If false, runs in separate node.
     initial_num_msgs_to_include: 4
@@ -88,7 +88,7 @@ orchestration:
   cleanup:
     # Trigger configurations: "periodic", "probabilistic", or "disabled"
     trigger_type: "periodic"
-    interval_turns:  12
+    interval_turns:  16
     trigger_probability: 0.10
     bundle_llm: true
     initial_num_msgs_to_include: 4
